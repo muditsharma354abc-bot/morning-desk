@@ -65,6 +65,7 @@ export class MorningDeskSystem extends createSystem({
   private plantGrow = 0;
   private lastDomPress = 0;
   private meetingLabels: Label[] = [];
+  private deskRow: Mesh[] = [];
   // P1 spatial layout: meetings board on the left, pending board on the right, progress in the background
   private left = new Group(); private right = new Group();
   private meetBoard!: Label; private pendHeader!: Label; private progress!: Label;
@@ -88,7 +89,7 @@ export class MorningDeskSystem extends createSystem({
     this.world.createTransformEntity(this.left, { persistent: true }); this.world.createTransformEntity(this.right, { persistent: true });
     this.meetBoard = new Label(0.34, 0.3); this.left.add(this.meetBoard.mesh);
     this.pendHeader = new Label(0.36, 0.05); this.pendHeader.mesh.position.set(0, 0.16, 0); this.right.add(this.pendHeader.mesh);
-    this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag onto the timeline', 30, H / 2, 20, C.ink, 700, W - 40); });
+    this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag to plan', 30, H / 2, 20, C.ink, 700, W - 40); });
     this.progress = new Label(0.7, 0.08); this.progress.mesh.position.set(0, 0.44, -0.25); this.wall.add(this.progress.mesh);
 
     // Desk surface (soft paper tray) + plant + streak.
@@ -128,7 +129,7 @@ export class MorningDeskSystem extends createSystem({
       ['? Tutorial', () => this.startTutorial()], ['↺ Demo reset', () => this.reset(true)],
     ];
     row.forEach(([t, fn], i) => {
-      const b = this.button(t, 0.125, fn, this.deskE);
+      const b = this.button(t, 0.125, fn, this.deskE); this.deskRow.push(b.label.mesh);
       b.label.mesh.position.set(-0.24 + i * 0.135, 0.035, -0.17); b.label.mesh.rotation.x = -0.5;
     });
 
@@ -330,7 +331,7 @@ export class MorningDeskSystem extends createSystem({
     const onDesk = s.stack.filter((id) => s.tasks[id].priority === 1);
     if (s.tasks[it.id].priority !== 1) {
       const j = s.stack.filter((id) => s.tasks[id].priority !== 1).indexOf(it.id);
-      out.set(-0.09 + (j % 2) * 0.18, 0.07 - Math.floor(j / 2) * 0.105, 0.004); this.right.localToWorld(out); outQ.copy(this.right.quaternion);
+      out.set(-0.095 + (j % 2) * 0.19, 0.065 - Math.floor(j / 2) * 0.12, 0.004); this.right.localToWorld(out); outQ.copy(this.right.quaternion);
       return { w: CARD_W, h: CARD_H, visible: true };
     }
     const i = onDesk.indexOf(it.id);
@@ -357,11 +358,11 @@ export class MorningDeskSystem extends createSystem({
         if (W < 120) {
           // narrow block: no clipped words, just a glyph + duration (full title shows on hover)
           text(g, t.done ? '✓' : iconFor(t.title), W / 2, H * 0.38, Math.min(30, W * 0.6), C.ink, 400, W, 'center');
-          text(g, dur(t.minutes), W / 2, H * 0.7, 13, C.ink, 500, W - 6, 'center');
+          text(g, dur(t.minutes), W / 2, H * 0.72, 16, C.ink, 600, W - 6, 'center');
         } else {
-          const lines = this.wrap(g, `${t.done ? '✓ ' : ''}${t.title}`, W - 18, 16, 2);
-          lines.forEach((ln, i) => text(g, ln, 10, H * (lines.length > 1 ? 0.24 + i * 0.24 : 0.32), 16, C.ink, 600, W - 16));
-          text(g, `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${t.done ? `${dur(t.actual ?? t.minutes)} of ${dur(t.minutes)}` : dur(t.minutes)}`, 10, H * 0.78, 14, C.ink, 400, W - 16);
+          const lines = this.wrap(g, `${t.done ? '✓ ' : ''}${t.title}`, W - 18, 21, 2);
+          lines.forEach((ln, i) => text(g, ln, 10, H * (lines.length > 1 ? 0.22 + i * 0.26 : 0.32), 21, C.ink, 700, W - 16));
+          text(g, `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${t.done ? `${dur(t.actual ?? t.minutes)} of ${dur(t.minutes)}` : dur(t.minutes)}`, 10, H * 0.8, 17, C.ink, 500, W - 16);
         }
       } else {
         panel(g, W, H, '#fbf8f1', C.prio[t.priority], 1);
@@ -539,7 +540,7 @@ export class MorningDeskSystem extends createSystem({
     if (!this.s.tasks[id] || this.s.tasks[id].done) return;
     this.focus = { id, length: 25, t0: performance.now(), base: 0, phase: 'run', shown: '' };
     this.focusPanel.mesh.visible = true; this.focusPanel.mesh.scale.setScalar(0.8);
-    this.placeInView(this.focusPanel.mesh, 0.62, -0.06);
+    this.placeInView(this.focusPanel.mesh, 0.62, -0.15);
     this.dim.visible = true; sfx.pick();
   }
   private setFocusLength(n: number): void { if (!this.focus) return; this.focus.length = n; if (this.focus.phase === 'ask') this.moreTime(0); this.focus.shown = ''; sfx.yes(); }
@@ -569,6 +570,7 @@ export class MorningDeskSystem extends createSystem({
     const f = this.focus;
     const k = 1 - Math.exp(-delta * 6);
     (this.dim.material as MeshBasicMaterial).opacity += ((f ? 0.55 : 0) - (this.dim.material as MeshBasicMaterial).opacity) * k;
+    for (const m of this.deskRow) m.visible = !f && !this.summary.mesh.visible; // one Done while focusing
     if (!f) return;
     this.dim.position.copy(new Vector3().setFromMatrixPosition(this.headCam().matrixWorld));
     for (const it of this.items.values()) (it.label.mesh.material as MeshBasicMaterial).opacity = it.id === f.id ? 1 : 0.22;
@@ -585,10 +587,11 @@ export class MorningDeskSystem extends createSystem({
       text(g, t.title, 36, 72, 28, C.ink, 700, W - 140);
       const mm = Math.floor(left), ss = Math.floor((left - mm) * 60);
       text(g, ask ? 'Done or more time?' : `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`, W / 2, H * 0.43, ask ? 40 : 64, ask ? '#b9772e' : C.ink, 700, W - 40, 'center');
-      g.fillStyle = '#d8d2c4'; g.beginPath(); g.roundRect(36, H * 0.56, W - 72, 10, 5); g.fill();
-      g.fillStyle = C.sageDeep; g.beginPath(); g.roundRect(36, H * 0.56, (W - 72) * Math.min(1, el / f.length), 10, 5); g.fill();
-      text(g, ask ? '👍 thumbs up = done · pinch = +15 min' : `${f.length}-min timer · planned ${dur(t.minutes)} · 👍 = done early`, W / 2, H * 0.66, 17, C.mute, 500, W - 40, 'center');
-      if (FOCUS_ACCEL > 1) text(g, `⏩ demo: accelerated ${FOCUS_ACCEL}× (1 s = ${FOCUS_ACCEL / 60} min)`, 36, H - 20, 14, '#b9772e', 600);
+      g.fillStyle = '#d8d2c4'; g.beginPath(); g.roundRect(36, H * 0.55, W - 72, 10, 5); g.fill();
+      g.fillStyle = C.sageDeep; g.beginPath(); g.roundRect(36, H * 0.55, (W - 72) * Math.min(1, el / f.length), 10, 5); g.fill();
+      text(g, ask ? '👍 thumbs up = done · pinch = +15 min' : `${f.length}-min timer · planned ${dur(t.minutes)} · 👍 = done early`, W / 2, H * 0.74, 17, C.mute, 500, W - 40, 'center');
+      if (FOCUS_ACCEL > 1) text(g, `⏩ Demo: 1 s = ${FOCUS_ACCEL / 60} min (accelerated)`, W / 2, H * 0.635, 16, '#b9772e', 700, W - 40, 'center');
+
     });
   }
   // ---------------------------------------------------------------- end-of-day summary (only measured numbers)
@@ -618,7 +621,7 @@ export class MorningDeskSystem extends createSystem({
     if (measured.length) why.push(planned > actual ? 'Focused tasks finished faster than planned.' : planned < actual ? 'Focused tasks ran longer than planned.' : 'Focused tasks ran to plan.');
     if (post.length) why.push(`${post.length} task${post.length > 1 ? 's were' : ' was'} postponed to keep the day fitting.`);
     const tip = post.length ? `Start with "${post[0]}" first thing.` : measured.length && actual < planned ? `Plan ${dur(Math.max(15, Math.round(actual / measured.length / 5) * 5))} blocks for similar tasks.` : doneN < today.length ? 'Schedule fewer blocks before your first meeting.' : 'Keep the same rhythm.';
-    this.summary.mesh.visible = true; this.placeInView(this.summary.mesh, 0.66, -0.05);
+    this.summary.mesh.visible = true; this.placeInView(this.summary.mesh, 0.62, -0.12);
     this.summary.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sage, 1);
       text(g, '🌙 End of day', 36, 36, 26, C.ink, 700);
@@ -684,9 +687,9 @@ export class MorningDeskSystem extends createSystem({
         const y = 84 + i * 56;
         text(g, `${fmt(m.start)}–${fmt(m.start + m.minutes)}`, 34, y, 18, C.sageDeep, 700);
         text(g, m.title, 34, y + 24, 20, C.ink, 600, W - 60);
-        if (clash.has(m.id)) text(g, '⚠ a task runs into this', W - 24, y, 15, '#b9772e', 700, W, 'right');
+        if (clash.has(m.id)) text(g, '⚠ clash', W - 24, y, 16, '#b9772e', 700, W, 'right');
       });
-      text(g, 'fixed · the planner works around these', 34, H - 22, 14, C.mute, 500, W - 50);
+      text(g, 'fixed times', 34, H - 22, 15, C.mute, 500, W - 50);
     });
     const tasks = [...s.timeline, ...s.tomorrow, ...s.stack].filter((id) => s.tasks[id]);
     const done = s.timeline.filter((id) => s.tasks[id].done);

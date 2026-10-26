@@ -31,6 +31,7 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
     } catch { xr = false; }
   }
   await sleep(1500); // let the app place desk + timeline around the head
+  if (xr) { await selectHandsInToolbar(); dev.primaryInputMode = 'hand'; await sleep(600); } // corner panels read "hand"
   if (!xr) { say('needs the IWER emulator (desktop browser): open this URL on a desktop, not a headset'); return; }
 
   const R = dev.hands.right, L = dev.hands.left;
@@ -143,4 +144,23 @@ function caption(): HTMLDivElement {
   el.append(tag, document.createElement('span'));
   document.body.append(el);
   return el;
+}
+
+/** Click the IWER devui toolbar's input-mode menu → Hands (same as a person would). */
+async function selectHandsInToolbar(): Promise<void> {
+  const find = (pred: (b: HTMLElement) => boolean): HTMLElement | undefined => {
+    const walk = (r: Document | ShadowRoot): HTMLElement | undefined => {
+      for (const el of r.querySelectorAll<HTMLElement>('*')) {
+        if (el.tagName === 'BUTTON' && pred(el)) return el;
+        if (el.shadowRoot) { const x = walk(el.shadowRoot); if (x) return x; }
+      }
+      return undefined;
+    };
+    return walk(document);
+  };
+  const menu = find((b) => b.title === 'Select input mode'); if (!menu) return;
+  menu.click(); await sleep(400);
+  const ctl = find((b) => /^Controllers/.test(b.textContent?.trim() ?? '')); ctl?.click(); await sleep(500);
+  menu.click(); await sleep(400);
+  find((b) => /^Hands/.test(b.textContent?.trim() ?? ''))?.click();
 }

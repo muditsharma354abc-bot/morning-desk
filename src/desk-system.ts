@@ -65,6 +65,9 @@ export class MorningDeskSystem extends createSystem({
   private plantGrow = 0;
   private lastDomPress = 0;
   private meetingLabels: Label[] = [];
+  // P1 spatial layout: meetings board on the left, pending board on the right, progress in the background
+  private left = new Group(); private right = new Group();
+  private meetBoard!: Label; private pendHeader!: Label; private progress!: Label;
   private focusPanel!: Label; private focusE!: Entity; private focusBtns: Btn[] = [];
   private dim!: Mesh;
   /** Focus Mode: one task, big, in front; timer in task minutes. */
@@ -82,6 +85,11 @@ export class MorningDeskSystem extends createSystem({
     this.deskE = this.world.createTransformEntity(this.desk, { persistent: true });
     this.wallE = this.world.createTransformEntity(this.wall, { persistent: true });
     this.setBackground(true);
+    this.world.createTransformEntity(this.left, { persistent: true }); this.world.createTransformEntity(this.right, { persistent: true });
+    this.meetBoard = new Label(0.34, 0.3); this.left.add(this.meetBoard.mesh);
+    this.pendHeader = new Label(0.36, 0.05); this.pendHeader.mesh.position.set(0, 0.16, 0); this.right.add(this.pendHeader.mesh);
+    this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag onto the timeline', 30, H / 2, 20, C.ink, 700, W - 40); });
+    this.progress = new Label(0.7, 0.08); this.progress.mesh.position.set(0, 0.44, -0.25); this.wall.add(this.progress.mesh);
 
     // Desk surface (soft paper tray) + plant + streak.
     const tray = new Label(0.62, 0.3);
@@ -223,6 +231,12 @@ export class MorningDeskSystem extends createSystem({
       this.restoreWall = JSON.parse(kept) as number[]; this.wallMode = 'detected'; this.restored = true;
       if (!this.wallE.hasComponent(XRAnchor)) this.wallE.addComponent(XRAnchor);
     }
+    // side boards, turned to face the seated user
+    const side = (g: Group, deg: number, dist: number, dy: number) => {
+      const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
+      g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
+    };
+    side(this.left, 40, 0.95, -0.04); side(this.right, -42, 0.85, -0.12);
     for (const pe of this.queries.planes.entities) this.tryWall(pe);
     this.placed = true; this.redrawHeader();
   }
@@ -313,7 +327,13 @@ export class MorningDeskSystem extends createSystem({
       out.set(0.7, -0.2, 0); this.desk.localToWorld(out); outQ.copy(this.desk.quaternion);
       return { w: CARD_W, h: CARD_H, visible: false };
     }
-    const i = s.stack.indexOf(it.id);
+    const onDesk = s.stack.filter((id) => s.tasks[id].priority === 1);
+    if (s.tasks[it.id].priority !== 1) {
+      const j = s.stack.filter((id) => s.tasks[id].priority !== 1).indexOf(it.id);
+      out.set(-0.09 + (j % 2) * 0.18, 0.07 - Math.floor(j / 2) * 0.105, 0.004); this.right.localToWorld(out); outQ.copy(this.right.quaternion);
+      return { w: CARD_W, h: CARD_H, visible: true };
+    }
+    const i = onDesk.indexOf(it.id);
     const col = i % 3, row = Math.floor(i / 3);
     out.set(-0.17 + col * 0.165, 0.035 + row * 0.005, 0.07 - row * 0.1); this.desk.localToWorld(out);
     outQ.copy(this.desk.quaternion).multiply(this.q.setFromAxisAngle(new Vector3(1, 0, 0), -1.05));
@@ -573,7 +593,7 @@ export class MorningDeskSystem extends createSystem({
   }
   // ---------------------------------------------------------------- end-of-day summary (only measured numbers)
   private showSummary(): void {
-    const s = this.s; const all = [...s.timeline, ...s.tomorrow].filter((id) => s.tasks[id]);
+    const s = this.s; const all = [...s.timeline, ...s.tomorrow, ...s.stack].filter((id) => s.tasks[id]);
     const done = all.filter((id) => s.tasks[id].done);
     const measured = done.filter((id) => s.tasks[id].actual !== undefined);
     const planned = measured.reduce((a, id) => a + s.tasks[id].minutes, 0), actual = measured.reduce((a, id) => a + (s.tasks[id].actual ?? 0), 0);
@@ -644,7 +664,32 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- drawing
-  private redrawAll(): void { this.redrawHeader(); this.redrawAgent(); this.growPlant(); this.redrawMeetings(); }
+  private redrawAll(): void { this.redrawHeader(); this.redrawAgent(); this.growPlant(); this.redrawMeetings(); this.redrawBoards(); }
+  private redrawBoards(): void {
+    const s = this.s; const ms = s.meetings ?? []; const sl = layout(s).slots;
+    const clash = new Set(Object.values(sl).map((x) => x.clash?.id).filter(Boolean));
+    this.meetBoard.draw((g, W, H) => {
+      panel(g, W, H, C.paper, '#5e6a7a', 0.95);
+      text(g, '📅 Meetings', 34, 36, 24, C.ink, 700);
+      if (!ms.length) text(g, 'No meetings today', 34, 84, 18, C.mute, 500);
+      ms.forEach((m, i) => {
+        const y = 84 + i * 56;
+        text(g, `${fmt(m.start)}–${fmt(m.start + m.minutes)}`, 34, y, 18, C.sageDeep, 700);
+        text(g, m.title, 34, y + 24, 20, C.ink, 600, W - 60);
+        if (clash.has(m.id)) text(g, '⚠ a task runs into this', W - 24, y, 15, '#b9772e', 700, W, 'right');
+      });
+      text(g, 'fixed · the planner works around these', 34, H - 22, 14, C.mute, 500, W - 50);
+    });
+    const tasks = [...s.timeline, ...s.tomorrow, ...s.stack].filter((id) => s.tasks[id]);
+    const done = s.timeline.filter((id) => s.tasks[id].done);
+    this.progress.mesh.visible = done.length > 0;
+    this.progress.draw((g, W, H) => {
+      panel(g, W, H, '#ffffff', undefined, 0.5);
+      text(g, `✓ Completed ${done.length}/${tasks.length}${done.length ? ': ' + done.map((id) => s.tasks[id].title).join(', ') : ''}`, 24, H * 0.36, 20, C.sageDeep, 700, W - 48);
+      g.fillStyle = '#d8d2c4'; g.beginPath(); g.roundRect(24, H * 0.66, W - 48, 10, 5); g.fill();
+      g.fillStyle = C.sage; g.beginPath(); g.roundRect(24, H * 0.66, (W - 48) * (done.length / Math.max(1, tasks.length)), 10, 5); g.fill();
+    });
+  }
   private redrawMeetings(): void {
     const ms = this.s.meetings ?? [];
     while (this.meetingLabels.length > ms.length) this.wall.remove(this.meetingLabels.pop()!.mesh);
@@ -847,6 +892,6 @@ export class MorningDeskSystem extends createSystem({
     this.plant.scale.setScalar(sc);
     // the level root marks children matrixAutoUpdate=false; our objects move every frame, so keep them live
     const live = (o: { matrixAutoUpdate: boolean; children: unknown[] }) => { o.matrixAutoUpdate = true; for (const c of o.children) live(c as typeof o); };
-    live(this.desk); live(this.wall); for (const it of this.items.values()) it.label.mesh.matrixAutoUpdate = true;
+    live(this.desk); live(this.wall); live(this.left); live(this.right); for (const it of this.items.values()) it.label.mesh.matrixAutoUpdate = true;
   }
 }

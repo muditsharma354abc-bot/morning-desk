@@ -62,10 +62,11 @@ export function demoState(): PlanState {
     t('blog', 'Write blog draft', 45, 3, 'Outline + first 500 words.'),
     t('plants', 'Water the plants', 10, 3, 'Balcony + desk plant.'),
     t('read', 'Read 20 pages', 30, 3, 'Current book, paper copy.'),
+    t('prep', 'Prep client sync notes', 20, 1, 'Three questions for the 14:00 call.'),
   ];
   return {
     tasks: Object.fromEntries(tasks.map((x) => [x.id, x])),
-    stack: ['blog', 'plants', 'read'],
+    stack: ['prep', 'blog', 'plants', 'read'],
     timeline: ['standup', 'review', 'inbox', 'call', 'deep', 'gym'], // deep work starts 13:00, meeting at 14:00
     tomorrow: [], skipped: [],
     dayStart: 11 * 60, availableMinutes: 6 * 60,

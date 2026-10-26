@@ -33,7 +33,7 @@ export class Label {
   }
 }
 
-export function panel(g: CanvasRenderingContext2D, W: number, H: number, fill: string = C.paper, accent?: string, alpha = 0.94): void {
+export function panel(g: CanvasRenderingContext2D, W: number, H: number, fill: string = C.paper, accent?: string, alpha = 0.98): void {
   const r = Math.min(28, H / 4);
   g.globalAlpha = alpha; g.fillStyle = fill;
   g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, r); g.fill();

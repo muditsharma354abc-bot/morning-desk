@@ -70,6 +70,9 @@ export function load(): PlanState {
   } catch { /* ignore */ }
   return sampleState();
 }
+export function clearStorage(): void {
+  for (const k of Object.keys(localStorage)) if (k.startsWith('morning-desk.')) localStorage.removeItem(k);
+}
 export function save(s: PlanState): void {
   try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ }
 }

@@ -593,13 +593,21 @@ export class MorningDeskSystem extends createSystem({
   }
   // ---------------------------------------------------------------- end-of-day summary (only measured numbers)
   private showSummary(): void {
-    const s = this.s; const all = [...s.timeline, ...s.tomorrow, ...s.stack].filter((id) => s.tasks[id]);
+    const s = this.s;
+    // count by original task id: split parts roll up into one task, done only when every part is done
+    const root = (id: string) => s.tasks[id].partOf ?? id;
+    const groups = new Map<string, string[]>();
+    for (const id of [...s.timeline, ...s.tomorrow].filter((x) => s.tasks[x])) groups.set(root(id), [...(groups.get(root(id)) ?? []), id]);
+    const today = [...groups.entries()].filter(([, ids]) => ids.some((x) => s.timeline.includes(x)));
+    const doneN = today.filter(([, ids]) => ids.every((x) => s.tasks[x].done)).length;
+    const unsched = s.stack.filter((x) => s.tasks[x]).length;
+    const all = s.timeline.filter((id) => s.tasks[id]);
     const done = all.filter((id) => s.tasks[id].done);
     const measured = done.filter((id) => s.tasks[id].actual !== undefined);
     const planned = measured.reduce((a, id) => a + s.tasks[id].minutes, 0), actual = measured.reduce((a, id) => a + (s.tasks[id].actual ?? 0), 0);
     const ms = s.meetings ?? []; const post = s.tomorrow.map((id) => s.tasks[id]?.title).filter(Boolean);
     const lines: [string, string][] = [
-      ['Tasks done', `${done.length}/${all.length}`],
+      ['Tasks done', `${doneN}/${today.length} scheduled${unsched ? ` · ${unsched} not scheduled` : ''}`],
       ['Focus time', dur(s.focusMinutes ?? 0)],
       ['Meetings', ms.length ? `${ms.length} · ${dur(ms.reduce((a, m) => a + m.minutes, 0))}` : 'none'],
       ['Postponed', post.length ? post.join(', ') : 'none'],
@@ -609,7 +617,7 @@ export class MorningDeskSystem extends createSystem({
     if (s.conflictsFixed) why.push(`The planner fixed ${s.conflictsFixed} meeting clash${s.conflictsFixed > 1 ? 'es' : ''}.`);
     if (measured.length) why.push(planned > actual ? 'Focused tasks finished faster than planned.' : planned < actual ? 'Focused tasks ran longer than planned.' : 'Focused tasks ran to plan.');
     if (post.length) why.push(`${post.length} task${post.length > 1 ? 's were' : ' was'} postponed to keep the day fitting.`);
-    const tip = post.length ? `Start with "${post[0]}" first thing.` : measured.length && actual < planned ? `Plan ${dur(Math.max(15, Math.round(actual / measured.length / 5) * 5))} blocks for similar tasks.` : done.length < all.length ? 'Schedule fewer blocks before your first meeting.' : 'Keep the same rhythm.';
+    const tip = post.length ? `Start with "${post[0]}" first thing.` : measured.length && actual < planned ? `Plan ${dur(Math.max(15, Math.round(actual / measured.length / 5) * 5))} blocks for similar tasks.` : doneN < today.length ? 'Schedule fewer blocks before your first meeting.' : 'Keep the same rhythm.';
     this.summary.mesh.visible = true; this.placeInView(this.summary.mesh, 0.66, -0.05);
     this.summary.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sage, 1);

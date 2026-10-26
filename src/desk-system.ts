@@ -841,7 +841,10 @@ export class MorningDeskSystem extends createSystem({
       for (let i = 0; i < 20; i++) {
         await new Promise((r) => setTimeout(r, i ? 300 : 150));
         if (!this.inXR()) { this.handsSet = false; return; }
-        if (!synced || iwer.primaryInputMode !== 'hand') { await m.selectHandsInToolbar(); iwer.primaryInputMode = 'hand'; synced = true; }
+        if (!synced) { await m.selectHandsOnly(); synced = true; } // sync the toolbar without passing through Controllers
+        if (iwer.primaryInputMode !== 'hand') { iwer.primaryInputMode = 'hand'; await m.selectHandsOnly(); }
+        if (!this.inXR()) { this.handsSet = false; return; }
+        if (iwer.primaryInputMode !== 'hand') iwer.primaryInputMode = 'hand';
       }
     });
   }

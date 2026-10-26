@@ -177,3 +177,21 @@ export async function selectHandsInToolbar(): Promise<void> {
   menu.click(); await sleep(400);
   find((b) => /^Hands/.test(b.textContent?.trim() ?? ''))?.click();
 }
+
+/** ?hands=1 upkeep: pick "Hands" in the IWER toolbar (never Controllers); closes the menu if it stays open. */
+export async function selectHandsOnly(): Promise<void> {
+  const find = (pred: (b: HTMLElement) => boolean): HTMLElement | undefined => {
+    const walk = (r: Document | ShadowRoot): HTMLElement | undefined => {
+      for (const el of r.querySelectorAll<HTMLElement>('*')) {
+        if (el.tagName === 'BUTTON' && pred(el)) return el;
+        if (el.shadowRoot) { const x = walk(el.shadowRoot); if (x) return x; }
+      }
+      return undefined;
+    };
+    return walk(document);
+  };
+  let hands = find((b) => /^Hands/.test(b.textContent?.trim() ?? ''));
+  if (!hands) { const menu = find((b) => b.title === 'Select input mode'); if (!menu) return; menu.click(); await sleep(400); hands = find((b) => /^Hands/.test(b.textContent?.trim() ?? '')); }
+  hands?.click(); await sleep(300);
+  if (find((b) => /^Hands/.test(b.textContent?.trim() ?? ''))) find((b) => b.title === 'Select input mode')?.click();
+}

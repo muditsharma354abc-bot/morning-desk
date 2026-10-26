@@ -78,7 +78,7 @@ export class MorningDeskSystem extends createSystem({
     this.desk.add(tray.mesh);
     this.buildPlant();
     this.streakLabel = new Label(0.2, 0.034);
-    this.streakLabel.mesh.position.set(0.25, 0.012, 0.115); this.streakLabel.mesh.rotation.x = -1.0; this.desk.add(this.streakLabel.mesh); // tag lying in front of the pot
+    this.streakLabel.mesh.position.set(0.27, 0.012, -0.085); this.streakLabel.mesh.rotation.x = -1.0; this.desk.add(this.streakLabel.mesh); // tag lying just behind the pot, clear of the cards
 
     // Wall: header + track + agent panel.
     this.header = new Label(TRACK_W + 0.2, 0.09);
@@ -394,7 +394,7 @@ export class MorningDeskSystem extends createSystem({
   private buildPlant(): void {
     const pot = new Mesh(new CylinderGeometry(0.03, 0.022, 0.045, 20), new MeshStandardMaterial({ color: C.clay, roughness: 0.9 }));
     pot.position.y = 0.0225; this.plant.add(pot);
-    this.plant.position.set(0.25, 0, 0.0); this.desk.add(this.plant);
+    this.plant.position.set(0.27, 0, 0.0); this.desk.add(this.plant);
   }
   /** Plant growth stages: 0 seed · 1-2 sprout · 3-5 leafy · 6-9 bud · 10+ flower. */
   private growPlant(): void {

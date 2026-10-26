@@ -242,7 +242,7 @@ export class MorningDeskSystem extends createSystem({
       const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
       g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
     };
-    side(this.left, 37, 0.9, -0.04); side(this.right, -36, 0.85, 0.04); // inside a ~16:9 capture FoV
+    side(this.left, 37, 0.9, -0.04); side(this.right, -29, 0.85, 0.04); // inside a ~16:9 capture FoV
     for (const pe of this.queries.planes.entities) this.tryWall(pe);
     this.placed = true; this.redrawHeader();
   }
@@ -623,6 +623,7 @@ export class MorningDeskSystem extends createSystem({
       ['Postponed', post.length ? post.join(', ') : 'none'],
     ];
     if (measured.length && planned !== actual) lines.push([planned > actual ? 'Time saved' : 'Over plan', `${dur(Math.abs(planned - actual))} (planned ${dur(planned)} vs actual ${dur(actual)})`]);
+    if (measured.length && planned !== actual && IS_DEMO) lines.push(['', '↳ (demo clock, accelerated)']);
     const why: string[] = [];
     if (s.conflictsFixed) why.push(`The planner fixed ${s.conflictsFixed} meeting clash${s.conflictsFixed > 1 ? 'es' : ''}.`);
     if (measured.length) why.push(planned > actual ? 'Focused tasks finished faster than planned.' : planned < actual ? 'Focused tasks ran longer than planned.' : 'Focused tasks ran to plan.');

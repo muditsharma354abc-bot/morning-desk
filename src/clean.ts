@@ -7,7 +7,13 @@ import { MeshStandardMaterial, type World } from '@iwsdk/core';
 
 export function enableCleanCapture(world: World): void {
   const style = document.createElement('style');
-  style.textContent = '*, html, body, canvas { cursor: none !important; }'; // no OS mouse cursor in capture
+  const NO_CURSOR = 'html, body, *, *::before, *::after, canvas, :fullscreen, :fullscreen *, ::backdrop { cursor: none !important; }';
+  style.textContent = NO_CURSOR; // no OS mouse cursor in capture (incl. fullscreen)
+  const inject = (root: ShadowRoot) => { // shadow roots (IWER devui) don't inherit page styles
+    if ((root as unknown as { mdNoCursor?: boolean }).mdNoCursor) return;
+    (root as unknown as { mdNoCursor?: boolean }).mdNoCursor = true;
+    const st = document.createElement('style'); st.textContent = `:host, ${NO_CURSOR}`; root.append(st);
+  };
   document.head.append(style);
   // emulated hands: solid, opaque, high-contrast fill (the outline stays) so a thumbs-up reads clearly
   const handMat = new MeshStandardMaterial({ color: '#ff8a5c', emissive: '#7a2e14', emissiveIntensity: 0.35, roughness: 0.55 });
@@ -18,7 +24,9 @@ export function enableCleanCapture(world: World): void {
       if (c !== appCanvas() && (c as HTMLElement).style.top === '50vh' && Number((c as HTMLElement).style.zIndex) > 2) (c as HTMLElement).style.visibility = 'hidden';
     }
     // devui toolbar / corner panels / banners live in shadow-root hosts: invisible, still in the DOM (autoplay clicks them)
+    for (const c of document.querySelectorAll<HTMLElement>('canvas')) c.style.setProperty('cursor', 'none', 'important'); // beats IWER's inline crosshair
     for (const h of document.querySelectorAll<HTMLElement>('body *')) {
+      if (h.shadowRoot) inject(h.shadowRoot);
       if (h.shadowRoot && h.id !== 'scene-container') { h.style.opacity = '0'; h.style.pointerEvents = 'none'; }
     }
     // hand ray beams (thin open cylinders from @iwsdk/xr-input ray-pointer); the cursor dot stays

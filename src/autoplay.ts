@@ -2,7 +2,7 @@
  * ?demo=1&autoplay=1 — a hands-free filming pass. It drives the REAL app through the IWER
  * emulator: emulated hand position (grasp pin), pinch value and hand poses. The app's own
  * grab / drop / flick / thumbs-gesture code reacts exactly as it would to a person.
- * Falls back to calling the same actions directly when no emulator/XR is available.
+ * It never calls app result functions; every outcome comes from the real input paths.
  */
 import { Vector3, VisibilityState, type World } from '@iwsdk/core';
 
@@ -31,7 +31,7 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
     } catch { xr = false; }
   }
   await sleep(1500); // let the app place desk + timeline around the head
-  if (!xr) return desktopPass(sys, say);
+  if (!xr) { say('needs the IWER emulator (desktop browser): open this URL on a desktop, not a headset'); return; }
 
   const R = dev.hands.right, L = dev.hands.left;
   let cur: V3 = [0.22, 1.3, -0.35];
@@ -60,14 +60,20 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
     const w = sys.wall.localToWorld(new Vector3(x, 0, 0));
     return head.clone().addScaledVector(w.sub(head).normalize(), 0.45).toArray() as V3;
   };
+  /** Poke a button with the index fingertip (real PokeInteractable path). */
   const press = async (name: string) => {
     const b = button(name); if (!b) return;
-    const p = posOf(b.label.mesh); const before = JSON.stringify([sys.pending?.summary, sys.s.streak, sys.agentMsg]);
-    await move([p[0], p[1] + 0.03, p[2] + 0.06], 1000); await move([p[0], p[1] + 0.005, p[2] + 0.01], 350);
-    await pinch(1, 120); await sleep(150); await pinch(0, 120); await sleep(300);
-    // if the hand ray missed the button, press it the way a ray select would
-    if (JSON.stringify([sys.pending?.summary, sys.s.streak, sys.agentMsg]) === before) b.action();
-    await move([p[0], p[1] + 0.08, p[2] + 0.1], 500);
+    const p = posOf(b.label.mesh);
+    const n = new Vector3(0, 0, 1).applyQuaternion(b.label.mesh.getWorldQuaternion(new (b.label.mesh.quaternion.constructor)())).toArray() as V3;
+    const off = (d: number): V3 => [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d];
+    R.poseId = 'point';
+    const tip = (q: V3) => R.setPin({ anchor: 'index-tip', target: q });
+    const from = cur; const via = off(0.08);
+    for (let i = 1; i <= 50; i++) { const k = ease(i / 50); tip([0, 1, 2].map((j) => from[j] + (via[j] - from[j]) * k) as V3); await sleep(20); }
+    for (let i = 1; i <= 15; i++) { const d = 0.08 - (0.095 * i) / 15; tip(off(d)); await sleep(25); } // push 1.5 cm through
+    await sleep(200);
+    for (let i = 1; i <= 15; i++) { tip(off(-0.015 + (0.1 * i) / 15)); await sleep(20); }
+    cur = off(0.085); R.poseId = 'default'; pin(R, cur);
   };
   const thumbs = async (up: boolean) => {
     const s2 = Math.SQRT1_2;
@@ -75,8 +81,7 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
     const p: V3 = [0.1, 1.38, -0.33];
     await move(p, 800);
     pin(R, p, up ? [0, 0, -s2, s2] : [0, 0, s2, s2]);
-    for (let i = 0; i < 40 && sys.pending; i++) await sleep(50); // the app's gesture detector decides
-    if (sys.pending) sys.decide(up); // safety net
+    for (let i = 0; i < 40 && sys.pending; i++) await sleep(50); // the app's own gesture detector decides
     await sleep(600); R.poseId = 'default'; pin(R, p);
   };
 
@@ -92,7 +97,9 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
   const c2 = card('plants'); await move([c2[0], c2[1] + 0.06, c2[2] + 0.05], 1300); await move(c2, 500);
   await pinch(1, 120); await sleep(120); await pinch(0, 120);
   for (let i = 0; i < 30 && !sys.detailId; i++) await sleep(100);
-  await sleep(3000); sys.openDetail(''); await move([c2[0], c2[1] + 0.08, c2[2] + 0.06], 500);
+  await sleep(3000);
+  await pinch(1, 120); await sleep(120); await pinch(0, 120); await sleep(600); // tap again closes it
+  await move([c2[0], c2[1] + 0.08, c2[2] + 0.06], 500);
 
   say('3/7  flick a card sideways to skip it');
   const c3 = card('call'); await move([c3[0], c3[1] + 0.06, c3[2] + 0.05], 1100); await move(c3, 450);
@@ -112,26 +119,6 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
   await press('Done'); await sleep(4000);
   await move([0.22, 1.1, -0.25], 1200);
   say('demo complete');
-}
-
-/** No emulator / XR: run the same pass through the app's own actions in the flat view. */
-async function desktopPass(sys: Sys, say: (t: string) => void): Promise<void> {
-  const steps: [string, () => void, number][] = [
-    ['1/7  drop a card on the timeline', () => { sys.release('inbox', aimFlat(sys), 0, 0.3, 1); }, 2500],
-    ['2/7  open details', () => sys.openDetail('plants'), 3000],
-    ['3/7  flick a card to skip it', () => { sys.openDetail(''); sys.release('call', sys.desk.position.clone().add(new Vector3(0.6, 0.4, 0)), 1.5, 0.3, 1); }, 2500],
-    ['4/7  ask the planner', () => sys.runAgent(true), 3500],
-    ['5/7  👍 keep', () => sys.decide(true), 3500],
-    ['6/7  👎 undo', () => sys.decide(false), 3000],
-    ['7/7  done for today', () => sys.finishDay(), 3500],
-  ];
-  for (const [t, fn, ms] of steps) { say(t); fn(); await sleep(ms); }
-  say('demo complete (desktop)');
-}
-function aimFlat(sys: Sys): Vector3 {
-  const head = sys.headCam().getWorldPosition(new Vector3());
-  const w = sys.wall.localToWorld(new Vector3(0.4, 0, 0));
-  return head.clone().addScaledVector(w.sub(head).normalize(), 0.6);
 }
 
 function caption(): HTMLDivElement {

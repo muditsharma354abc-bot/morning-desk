@@ -1,6 +1,6 @@
 import {
   Color, createSystem, CylinderGeometry, Entity, Grabbed, Group, HemisphereLight, Mesh, MeshStandardMaterial,
-  Hovered, OneHandGrabbable, Pressed, Quaternion, RayInteractable, SphereGeometry, Vector2, Vector3,
+  Hovered, OneHandGrabbable, PokeInteractable, Pressed, Quaternion, RayInteractable, SphereGeometry, Vector2, Vector3,
   VisibilityState, XRAnchor, XRPlane,
 } from '@iwsdk/core';
 import { Label, panel, para, text } from './label.js';
@@ -136,6 +136,9 @@ export class MorningDeskSystem extends createSystem({
       this.placed = false; // re-place around the head once the session pose settles
       this.placeDelay = this.inXR() ? 0.6 : 0;
       if (this.inXR()) unlockAudio();
+      // hands-first: in the desktop emulator, switch to emulated hands (the devui can switch back)
+      const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE;
+      if (iwer && !this.inXR()) iwer.primaryInputMode = 'hand';
       for (const id of ['hud', 'hint']) { const el = document.getElementById(id); if (el) el.style.display = this.inXR() ? 'none' : ''; }
     }));
     this.hookDom();
@@ -220,6 +223,7 @@ export class MorningDeskSystem extends createSystem({
     const entity = this.world.createTransformEntity(label.mesh, parent);
     label.mesh.userData.btn = t;
     entity.addComponent(RayInteractable);
+    entity.addComponent(PokeInteractable); // fingertip press
     const b = { label, entity, action };
     this.buttons.set(entity.index, b);
     return b;

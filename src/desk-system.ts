@@ -726,7 +726,7 @@ export class MorningDeskSystem extends createSystem({
     this.header.draw((g, W, H) => {
       panel(g, W, H, C.paper, over ? C.warn : C.sage);
       text(g, `Today  ${fmt(this.s.dayStart)}–${fmt(this.s.dayStart + av)}`, 34, H * 0.34, 26, C.ink, 700);
-      text(g, this.wallMode === 'detected' ? (this.restored ? '📍 restored on your wall' : '📍 pinned to your wall') : '📍 no wall found: timeline placed 1.2 m ahead', 34, H * 0.74, 17, C.mute, 500, W * 0.55);
+      text(g, this.wallMode === 'detected' ? (this.restored ? '📍 restored on your wall' : '📍 pinned to your wall') : `📍 no wall found: timeline placed ${WALL_FWD} m ahead`, 34, H * 0.74, 17, C.mute, 500, W * 0.55);
       text(g, over ? `⚠ ${dur(tot)} planned / ${dur(av)} free` : `${dur(tot)} / ${dur(av)}`, W - 30, H / 2, 24, over ? '#b9772e' : C.sageDeep, 700, W, 'right');
     });
   }

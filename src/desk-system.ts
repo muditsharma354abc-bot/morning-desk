@@ -587,13 +587,14 @@ export class MorningDeskSystem extends createSystem({
     this.focusPanel.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.prio[t.priority], 1);
       text(g, '🎯 Focus', 36, 34, 18, C.sageDeep, 700);
+      if (FOCUS_ACCEL > 1) text(g, `⏩ Demo: 1 s = ${FOCUS_ACCEL / 60} min (accelerated)`, 132, 34, 13, '#b9772e', 700, W - 132 - 96);
       text(g, t.title, 36, 72, 28, C.ink, 700, W - 140);
       const mm = Math.floor(left), ss = Math.floor((left - mm) * 60);
       text(g, ask ? 'Done or more time?' : `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`, W / 2, H * 0.43, ask ? 40 : 64, ask ? '#b9772e' : C.ink, 700, W - 40, 'center');
       g.fillStyle = '#d8d2c4'; g.beginPath(); g.roundRect(36, H * 0.55, W - 72, 10, 5); g.fill();
       g.fillStyle = C.sageDeep; g.beginPath(); g.roundRect(36, H * 0.55, (W - 72) * Math.min(1, el / f.length), 10, 5); g.fill();
       text(g, ask ? '👍 thumbs up = done · pinch = +15 min' : `${f.length}-min timer · planned ${dur(t.minutes)} · 👍 = done early`, W / 2, H * 0.74, 17, C.mute, 500, W - 40, 'center');
-      if (FOCUS_ACCEL > 1) text(g, `⏩ Demo: 1 s = ${FOCUS_ACCEL / 60} min (accelerated)`, W / 2, H * 0.635, 16, '#b9772e', 700, W - 40, 'center');
+
 
     });
   }

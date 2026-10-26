@@ -67,7 +67,7 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
   };
   const until = async (cond: () => boolean, ms: number) => { const t0 = performance.now(); while (!cond() && performance.now() - t0 < ms) await sleep(30); return cond(); };
   const lerp3 = (a: V3, b: V3, k: number) => [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * k) as V3;
-  const snap = () => JSON.stringify([sys.pending?.summary ?? '', sys.s.streak, sys.agentMsg]);
+  const snap = () => JSON.stringify([!!sys.focus, sys.pending?.summary ?? '', sys.s.streak, sys.agentMsg]);
 
   /** Poke a button with the index fingertip (real PokeInteractable path). Retries the poke once if nothing happened. */
   const press = async (name: string) => {
@@ -100,45 +100,36 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
   };
   const tap = async () => { await pinch(1, 120); await sleep(120); await pinch(0, 120); };
 
+  /** Reach to a block and quick-pinch it (near tap: the app's real grab -> release-as-tap path). */
+  const rayTap = async (target: V3) => {
+    await move([target[0], target[1] + 0.05, target[2] + 0.12], 1500); await move(target, 500); await sleep(200); await tap();
+  };
   try {
-    // ---- the pass (~75 s); every caption is set before its action
-    say('1/7  pinch a card, drop it on the timeline');
+    // ---- the pass (~60 s); every caption is set before its action
+    say('1/6  your day in space: desk, timeline, a 14:00 meeting');
     await move([0.2, 1.3, -0.3], 1000);
-    const c1 = card('inbox'); await move([c1[0], c1[1] + 0.06, c1[2] + 0.04], 1200); await move(c1, 450);
-    await pinch(1); await sleep(300);
-    await move([c1[0], c1[1] + 0.1, c1[2] - 0.02], 600);
-    await move(aimAt(0.4), 1700); await sleep(300); await pinch(0);
-    await until(() => !sys.drag, 3000); await sleep(1500);
+    const deep = card('deep'); await move([deep[0] * 0.4, deep[1] - 0.05, -0.4], 1500); await sleep(2500);
 
-    say('2/7  quick pinch opens the details card');
-    const c2 = card('plants'); await move([c2[0], c2[1] + 0.06, c2[2] + 0.05], 1200); await move(c2, 450);
-    await tap();
-    await until(() => !!sys.detailId, 3000);
-    await move([c2[0] + 0.05, c2[1] + 0.12, c2[2] + 0.12], 600); // move the hand aside so the card is visible
-    await sleep(2200);
-    say('2/7  quick pinch again closes it');
-    await move(card('plants'), 600); await tap(); await until(() => !sys.detailId, 3000);
-    await move([c2[0], c2[1] + 0.08, c2[2] + 0.06], 450);
+    say('2/6  pinch "Inbox sweep" to enter Focus Mode');
+    await rayTap(card('inbox'));
+    await until(() => !!sys.focus, 3000);
+    await move([0.22, 1.12, -0.3], 900);
 
-    say('3/7  flick a card sideways to skip it');
-    const c3 = card('call'); await move([c3[0], c3[1] + 0.06, c3[2] + 0.05], 1000); await move(c3, 400);
-    await pinch(1); await sleep(250);
-    await move([c3[0] + 0.42, c3[1] + 0.03, c3[2]], 100); await pinch(0, 60);
-    await until(() => !sys.drag, 3000); await sleep(1300);
+    say('3/6  25-min focus timer (accelerated in the demo) · others fade');
+    await sleep(3500);
 
-    say('4/7  poke "Plan for me"');
-    await press('Plan'); await sleep(2500);
+    say('4/6  👍 done early: the planner reschedules the day');
+    await thumbs(true);
+    await until(() => !!sys.pending, 4000); await sleep(2500);
 
-    say('5/7  👍 thumbs up keeps the split');
-    await thumbs(true); await sleep(1500);
+    say('5/6  conflict: 90m deep work vs 14:00 meeting · 👍 approve the fix');
+    if (sys.pending) await thumbs(true);
+    await sleep(2500);
 
-    say('6/7  👎 thumbs down undoes the next change');
-    if (sys.pending) await thumbs(false);
-    await sleep(1500);
-
-    say('7/7  poke "Done": streak +1, the plant grows');
-    await press('Done'); await sleep(3500);
-    await move([0.22, 1.1, -0.25], 1000);
+    say('6/6  poke "Done": end-of-day summary');
+    await press('Done'); await sleep(1500);
+    await move([0.22, 1.05, -0.2], 1000);
+    await sleep(3000);
     say(`demo complete · ${sys.s.streak}-day streak`);
   } catch (e) {
     say(`autoplay stopped: ${(e as Error).message}`);

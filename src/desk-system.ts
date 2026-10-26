@@ -6,7 +6,10 @@ import {
 import { Label, panel, para, text } from './label.js';
 import { PlanChange, RulePlanner } from './planner.js';
 import { C, sfx, unlockAudio } from './style.js';
-import { clearStorage, clone, completeDay, demoState, dur, fmt, load, PlanState, save, scheduledMinutes } from './state.js';
+import { clearStorage, clone, completeDay, demoState, dur, fmt, IS_DEMO, layout, load, PlanState, save, scheduledMinutes } from './state.js';
+import { BackSide, MeshBasicMaterial } from '@iwsdk/core';
+/** Demo days run the focus timer accelerated (and say so on the panel). */
+const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
 
 // ---- layout constants (metres). Seated, ~0.6 m reach, key UI within ~30° of gaze centre.
 const DESK_FWD = 0.4, DESK_DOWN = 0.26;      // card spread in easy reach
@@ -61,6 +64,14 @@ export class MorningDeskSystem extends createSystem({
   private detailId = '';
   private plantGrow = 0;
   private lastDomPress = 0;
+  private meetingLabels: Label[] = [];
+  private focusPanel!: Label; private focusE!: Entity; private focusBtns: Btn[] = [];
+  private dim!: Mesh;
+  /** Focus Mode: one task, big, in front; timer in task minutes. */
+  focus: { id: string; length: number; t0: number; base: number; phase: 'run' | 'ask'; shown: string } | null = null;
+  private summary!: Label;
+  /** ids of tasks a hand ray currently hovers (autoplay aims with it). */
+  hoveredIds(): string[] { return [...this.items.values()].filter((x) => x.entity.hasComponent(Hovered)).map((x) => x.id); }
   noAutoAgent = false; // autoplay asks the planner explicitly
 
   init(): void {
@@ -119,12 +130,37 @@ export class MorningDeskSystem extends createSystem({
     this.buttons.set(de.index, { label: this.detail, entity: de, action: () => this.openDetail('') });
     this.detail.mesh.position.set(-0.02, 0.05, 0.1); this.detail.mesh.rotation.x = -0.75;
 
+    // Focus Mode panel (replaces the old details card): big, in front of the head, with a timer.
+    this.focusPanel = new Label(0.46, 0.27); this.focusPanel.mesh.visible = false;
+    this.focusE = this.world.createTransformEntity(this.focusPanel.mesh, this.deskE);
+    const fb: [string, number, number, () => void][] = [
+      ['25 min', -0.165, 0.09, () => this.setFocusLength(25)], ['50 min', -0.055, 0.09, () => this.setFocusLength(50)],
+      ['+15 min', 0.055, 0.09, () => this.moreTime()], ['✓ Done', 0.165, 0.09, () => this.endFocus(true)],
+      ['✕ Exit', 0.19, -0.17, () => this.endFocus(false)],
+    ];
+    for (const [t, x, w, fn] of fb) {
+      const b = this.button(t, w, fn, this.focusE); b.label.mesh.position.set(x, t === '✕ Exit' ? 0.11 : -0.105, 0.004); this.focusBtns.push(b);
+    }
+    this.focusBtns[4].label.resize(0.07, 0.034);
+    // passthrough dimmer: a dark shell around the head while focusing
+    this.dim = new Mesh(new SphereGeometry(2.5, 24, 16), new MeshBasicMaterial({ color: '#0b0f0d', transparent: true, opacity: 0, side: BackSide, depthWrite: false }));
+    this.dim.renderOrder = -1; this.dim.visible = false; scene.add(this.dim);
+    this.summary = new Label(0.54, 0.4); this.summary.mesh.visible = false;
+    const se = this.world.createTransformEntity(this.summary.mesh, this.deskE); se.addComponent(RayInteractable);
+    this.buttons.set(se.index, { label: this.summary, entity: se, action: () => { this.summary.mesh.visible = false; } });
+
     this.tutorial = new Label(0.62, 0.1); this.tutorial.mesh.visible = false;
     const te = this.world.createTransformEntity(this.tutorial.mesh, this.wallE); te.addComponent(RayInteractable);
     this.buttons.set(te.index, { label: this.tutorial, entity: te, action: () => this.endTutorial() });
     this.tutorial.mesh.position.set(0, 0.29, 0.01);
 
-    this.queries.pressed.subscribe('qualify', (e) => { if (performance.now() - this.lastDomPress > 400) this.buttons.get(e.index)?.action(); });
+    this.queries.pressed.subscribe('qualify', (e) => {
+      if (performance.now() - this.lastDomPress <= 400) return;
+      const b = this.buttons.get(e.index); if (b) { b.action(); return; }
+      // ray + pinch on a task (e.g. a timeline block out of reach) opens Focus Mode
+      const it = [...this.items.values()].find((x) => x.entity.index === e.index); if (!it) return;
+      if (this.focus?.phase === 'ask') this.moreTime(); else if (!this.focus) { this.startFocus(it.id); this.tutEvent('detail'); }
+    });
     this.queries.planes.subscribe('qualify', (e) => this.tryWall(e));
     this.cleanupFuncs.push(this.world.visibilityState.subscribe((v) => {
       this.setBackground(v === VisibilityState.NonImmersive);
@@ -136,9 +172,12 @@ export class MorningDeskSystem extends createSystem({
       this.placed = false; // re-place around the head once the session pose settles
       this.placeDelay = this.inXR() ? 0.6 : 0;
       if (this.inXR()) unlockAudio();
+      // Focus Mode: when the timer asks "Done or more time?", any pinch adds 15 min (👍 = done)
+      const ses = this.world.renderer.xr.getSession();
+      if (ses && !(ses as unknown as { mdHook?: boolean }).mdHook) { (ses as unknown as { mdHook?: boolean }).mdHook = true; ses.addEventListener('selectstart', () => { if (this.focus?.phase === 'ask') this.moreTime(); }); }
       // hands-first: in the desktop emulator, switch to emulated hands (the devui can switch back)
       const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE;
-      if (iwer && !this.inXR()) iwer.primaryInputMode = 'hand';
+      // (input mode left to the IWER toolbar: setting it from code desynced the devui corner panels)
       for (const id of ['hud', 'hint']) { const el = document.getElementById(id); if (el) el.style.display = this.inXR() ? 'none' : ''; }
     }));
     this.hookDom();
@@ -148,7 +187,7 @@ export class MorningDeskSystem extends createSystem({
     // first real visit (or ?tutorial=1): start the hands tutorial automatically; never in demo/autoplay
     if ((!this.s.tutorialSeen && !q.has('demo')) || q.has('tutorial')) setTimeout(() => this.startTutorial(), 1200);
     if (q.has('autoplay')) setTimeout(() => void import('./autoplay.js').then((m) => m.runAutoplay(this as never, this.world)), 1500);
-    if (new URLSearchParams(location.search).has('demo')) this.agentMsg = 'Demo loaded: 6h 45m planned for 6h free. Tap "Plan for me".';
+    if (new URLSearchParams(location.search).has('demo')) this.agentMsg = this.demoMsg();
   }
 
   // ---------------------------------------------------------------- placement
@@ -259,9 +298,8 @@ export class MorningDeskSystem extends createSystem({
   private target(it: Item, out: Vector3, outQ: Quaternion): { w: number; h: number; visible: boolean } {
     const s = this.s; const place = this.placeOf(it.id);
     if (place === 'timeline') {
-      let start = 0;
-      for (const id of s.timeline) { if (id === it.id) break; start += s.tasks[id].minutes; }
-      const w = Math.max(0.03, s.tasks[it.id].minutes * this.pxPerM() - 0.006);
+      const sl = layout(s).slots[it.id]; const start = sl.start - s.dayStart;
+      const w = Math.max(0.03, (sl.end - sl.start) * this.pxPerM() - 0.006);
       out.set(-TRACK_W / 2 + start * this.pxPerM() + w / 2 + 0.003, 0, 0.006);
       this.wall.localToWorld(out); outQ.copy(this.wall.quaternion);
       return { w, h: TRACK_H, visible: true };
@@ -283,10 +321,11 @@ export class MorningDeskSystem extends createSystem({
   }
   private drawItem(it: Item, place: string, w: number, h: number): void {
     const t = this.s.tasks[it.id]; if (!t) return;
-    const key = `${place}|${w.toFixed(3)}|${t.title}|${t.minutes}|${this.slotStart(it.id)}`;
+    const key = `${place}|${w.toFixed(3)}|${t.title}|${t.minutes}|${this.slotStart(it.id)}|${t.done}|${JSON.stringify(layout(this.s).slots[it.id]?.clash ?? '')}`;
     if (key === it.drawnKey) return; it.drawnKey = key;
     it.label.resize(w, h);
-    const over = place === 'timeline' && this.slotStart(it.id) + t.minutes > this.s.availableMinutes;
+    const sl = layout(this.s).slots[it.id];
+    const over = place === 'timeline' && (!!sl?.clash || sl.end - this.s.dayStart > this.s.availableMinutes);
     it.label.draw((g, W, H) => {
       if (place === 'stack') {
         panel(g, W, H, C.paper, C.prio[t.priority]);
@@ -294,15 +333,15 @@ export class MorningDeskSystem extends createSystem({
         lines.forEach((ln, i) => text(g, ln, 30, H * (lines.length > 1 ? 0.24 + i * 0.25 : 0.36), 18, C.ink, 600, W - 40));
         text(g, `${dur(t.minutes)} · ${['', 'must', 'should', 'nice'][t.priority]}`, 30, H * 0.8, 15, C.mute, 500, W - 40);
       } else if (place === 'timeline') {
-        panel(g, W, H, over ? C.warn : C.prio[t.priority], undefined, 0.95);
+        panel(g, W, H, t.done ? '#dfe6dc' : over ? C.warn : C.prio[t.priority], undefined, t.done ? 0.7 : 0.95);
         if (W < 120) {
           // narrow block: no clipped words, just a glyph + duration (full title shows on hover)
-          text(g, iconFor(t.title), W / 2, H * 0.38, Math.min(30, W * 0.6), C.ink, 400, W, 'center');
+          text(g, t.done ? '✓' : iconFor(t.title), W / 2, H * 0.38, Math.min(30, W * 0.6), C.ink, 400, W, 'center');
           text(g, dur(t.minutes), W / 2, H * 0.7, 13, C.ink, 500, W - 6, 'center');
         } else {
-          const lines = this.wrap(g, t.title, W - 18, 16, 2);
+          const lines = this.wrap(g, `${t.done ? '✓ ' : ''}${t.title}`, W - 18, 16, 2);
           lines.forEach((ln, i) => text(g, ln, 10, H * (lines.length > 1 ? 0.24 + i * 0.24 : 0.32), 16, C.ink, 600, W - 16));
-          text(g, `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${dur(t.minutes)}`, 10, H * 0.78, 14, C.ink, 400, W - 16);
+          text(g, `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${t.done ? `${dur(t.actual ?? t.minutes)} of ${dur(t.minutes)}` : dur(t.minutes)}`, 10, H * 0.78, 14, C.ink, 400, W - 16);
         }
       } else {
         panel(g, W, H, '#fbf8f1', C.prio[t.priority], 1);
@@ -320,9 +359,7 @@ export class MorningDeskSystem extends createSystem({
     }
     out.push(line); return out;
   }
-  private slotStart(id: string): number {
-    let m = 0; for (const x of this.s.timeline) { if (x === id) return m; m += this.s.tasks[x].minutes; } return 0;
-  }
+  private slotStart(id: string): number { const sl = layout(this.s).slots[id]; return sl ? sl.start - this.s.dayStart : 0; }
 
   // ---------------------------------------------------------------- drop logic (shared by hands + mouse)
   /** Where would a card released at world point p land on the wall? (head→card ray, so seated users can "aim" it). */
@@ -336,24 +373,24 @@ export class MorningDeskSystem extends createSystem({
     if (Math.abs(hit.y) > 0.16 || hit.x < -TRACK_W / 2 - 0.1 || hit.x > TRACK_W / 2 + 0.25) return null;
     // insertion index by comparing to block centres (excluding the dragged one)
     const list = this.s.timeline.filter((x) => x !== this.drag?.id && x !== this.mouseDrag?.id);
-    let m = 0, idx = list.length;
+    const sl = layout(this.s).slots; let idx = list.length;
     for (let i = 0; i < list.length; i++) {
-      const w = this.s.tasks[list[i]].minutes;
-      const cx = -TRACK_W / 2 + (m + w / 2) * this.pxPerM();
+      const b = sl[list[i]]; if (!b) continue;
+      const cx = -TRACK_W / 2 + ((b.start + b.end) / 2 - this.s.dayStart) * this.pxPerM();
       if (hit.x < cx) { idx = i; break; }
-      m += w;
     }
     return idx;
   }
   private markerAt(idx: number | null): void {
     this.marker.visible = idx !== null; if (idx === null) return;
     const list = this.s.timeline.filter((x) => x !== this.drag?.id && x !== this.mouseDrag?.id);
-    let m = 0; for (let i = 0; i < idx; i++) m += this.s.tasks[list[i]].minutes;
+    const sl = layout(this.s).slots; const ref = list[idx] ?? list[idx - 1];
+    const m = !ref ? 0 : (list[idx] ? sl[ref].start : sl[ref].end) - this.s.dayStart;
     this.marker.position.set(-TRACK_W / 2 + m * this.pxPerM(), 0, 0.012);
   }
   private release(id: string, p: Vector3, lateralSpeed: number, moved: number, held: number): void {
     this.marker.visible = false;
-    if (moved < (this.inXR() ? 0.04 : 0.025) && held < (this.inXR() ? 4 : 0.5)) { this.openDetail(this.detailId === id ? '' : id); if (this.detailId) this.tutEvent('detail'); return; }
+    if (moved < (this.inXR() ? 0.04 : 0.025) && held < (this.inXR() ? 4 : 0.5)) { if (this.focus?.phase === 'ask') { this.moreTime(); return; } if (!this.focus) { this.startFocus(id); this.tutEvent('detail'); } return; }
     const idx = this.wallSlot(p);
     const s = this.s;
     const strip = (arr: string[]) => arr.filter((x) => x !== id);
@@ -441,7 +478,8 @@ export class MorningDeskSystem extends createSystem({
   }
   private finishDay(): void {
     completeDay(this.s); save(this.s); this.growPlant(); sfx.done();
-    this.agentMsg = `Ritual done. ${this.s.streak}-day streak, your plant grew. See you tomorrow.`; this.redrawAgent();
+    this.agentMsg = `Day closed. ${this.s.streak}-day streak, your plant grew. See you tomorrow.`; this.redrawAgent();
+    this.showSummary();
   }
   /** Spawn a panel in front of the viewer's current head pose: `dist` ahead (level gaze), `drop` below eye height, facing the head. */
   private placeInView(m: Mesh, dist: number, drop: number): void {
@@ -470,12 +508,105 @@ export class MorningDeskSystem extends createSystem({
       text(g, 'pinch / click to close', W - 24, H - 22, 13, C.mute, 400, W, 'right');
     });
   }
+  // ---------------------------------------------------------------- Focus Mode
+  private onThumb(dir: number): void {
+    if (this.focus) { if (dir > 0) this.endFocus(true); return; } // 👍 = done (early or at the bell)
+    this.decide(dir > 0);
+  }
+  /** Elapsed task-minutes of the current focus block (accelerated on demo days). */
+  focusElapsed(): number { const f = this.focus; return f ? f.base + (f.phase === 'run' ? (performance.now() - f.t0) / 60000 * FOCUS_ACCEL : 0) : 0; }
+  startFocus(id: string): void {
+    if (!this.s.tasks[id] || this.s.tasks[id].done) return;
+    this.focus = { id, length: 25, t0: performance.now(), base: 0, phase: 'run', shown: '' };
+    this.focusPanel.mesh.visible = true; this.focusPanel.mesh.scale.setScalar(0.8);
+    this.placeInView(this.focusPanel.mesh, 0.62, -0.06);
+    this.dim.visible = true; sfx.pick();
+  }
+  private setFocusLength(n: number): void { if (!this.focus) return; this.focus.length = n; if (this.focus.phase === 'ask') this.moreTime(0); this.focus.shown = ''; sfx.yes(); }
+  private moreTime(add = 15): void {
+    const f = this.focus; if (!f) return;
+    if (f.phase === 'ask') { f.phase = 'run'; f.t0 = performance.now(); }
+    f.length = Math.max(f.length, Math.floor(this.focusElapsed())) + add; f.shown = ''; sfx.agent();
+  }
+  endFocus(done: boolean): void {
+    const f = this.focus; if (!f) return;
+    const mins = Math.max(1, Math.round(this.focusElapsed()));
+    this.focus = null; this.focusPanel.mesh.visible = false; this.dim.visible = false;
+    for (const it of this.items.values()) (it.label.mesh.material as MeshBasicMaterial).opacity = 1;
+    this.s.focusMinutes = (this.s.focusMinutes ?? 0) + mins;
+    if (!done) { save(this.s); this.redrawAll(); return; }
+    const t = this.s.tasks[f.id]; t.done = true; t.actual = mins; sfx.done();
+    if (!this.s.timeline.includes(f.id)) { this.s.stack = this.s.stack.filter((x) => x !== f.id); this.s.timeline.unshift(f.id); }
+    // reschedule: later blocks follow the measured time, then the planner re-checks clashes / overload
+    const diff = t.minutes - mins;
+    this.agentMsg = diff > 0 ? `"${t.title}" done ${dur(diff)} early (${dur(mins)} of ${dur(t.minutes)} planned). Later blocks moved ${dur(diff)} earlier.`
+      : diff < 0 ? `"${t.title}" took ${dur(-diff)} longer (${dur(mins)} of ${dur(t.minutes)}). Later blocks moved ${dur(-diff)} later.` : `"${t.title}" done right on time.`;
+    save(this.s); this.syncItems(); this.redrawAll();
+    const c = this.planner.nextChange(this.s);
+    if (c && !this.declined.has(c.summary)) setTimeout(() => { const m = this.agentMsg; this.runAgent(); if (this.pending) this.agentMsg = `${m.split('.')[0]}. ${this.pending.summary}`; this.redrawAgent(); }, 1200);
+  }
+  private updateFocus(delta: number): void {
+    const f = this.focus;
+    const k = 1 - Math.exp(-delta * 6);
+    (this.dim.material as MeshBasicMaterial).opacity += ((f ? 0.55 : 0) - (this.dim.material as MeshBasicMaterial).opacity) * k;
+    if (!f) return;
+    this.dim.position.copy(new Vector3().setFromMatrixPosition(this.headCam().matrixWorld));
+    for (const it of this.items.values()) (it.label.mesh.material as MeshBasicMaterial).opacity = it.id === f.id ? 1 : 0.22;
+    const sc = this.focusPanel.mesh.scale.x; this.focusPanel.mesh.scale.setScalar(sc + (1 - sc) * k);
+    const el = this.focusElapsed();
+    if (f.phase === 'run' && el >= f.length) { f.base = f.length; f.phase = 'ask'; sfx.agent(); }
+    const left = Math.max(0, f.length - el);
+    const shown = `${f.phase}|${Math.floor(left * 60 / (FOCUS_ACCEL > 1 ? 30 : 1))}|${f.length}`;
+    if (shown === f.shown) return; f.shown = shown;
+    const t = this.s.tasks[f.id]; const ask = f.phase === 'ask';
+    this.focusPanel.draw((g, W, H) => {
+      panel(g, W, H, C.paper, C.prio[t.priority], 1);
+      text(g, '🎯 Focus', 36, 34, 18, C.sageDeep, 700);
+      text(g, t.title, 36, 72, 28, C.ink, 700, W - 140);
+      const mm = Math.floor(left), ss = Math.floor((left - mm) * 60);
+      text(g, ask ? 'Done or more time?' : `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`, W / 2, H * 0.43, ask ? 40 : 64, ask ? '#b9772e' : C.ink, 700, W - 40, 'center');
+      g.fillStyle = '#d8d2c4'; g.beginPath(); g.roundRect(36, H * 0.56, W - 72, 10, 5); g.fill();
+      g.fillStyle = C.sageDeep; g.beginPath(); g.roundRect(36, H * 0.56, (W - 72) * Math.min(1, el / f.length), 10, 5); g.fill();
+      text(g, ask ? '👍 thumbs up = done · pinch = +15 min' : `${f.length}-min timer · planned ${dur(t.minutes)} · 👍 = done early`, W / 2, H * 0.66, 17, C.mute, 500, W - 40, 'center');
+      if (FOCUS_ACCEL > 1) text(g, `⏩ demo: accelerated ${FOCUS_ACCEL}× (1 s = ${FOCUS_ACCEL / 60} min)`, 36, H - 20, 14, '#b9772e', 600);
+    });
+  }
+  // ---------------------------------------------------------------- end-of-day summary (only measured numbers)
+  private showSummary(): void {
+    const s = this.s; const all = [...s.timeline, ...s.tomorrow].filter((id) => s.tasks[id]);
+    const done = all.filter((id) => s.tasks[id].done);
+    const measured = done.filter((id) => s.tasks[id].actual !== undefined);
+    const planned = measured.reduce((a, id) => a + s.tasks[id].minutes, 0), actual = measured.reduce((a, id) => a + (s.tasks[id].actual ?? 0), 0);
+    const ms = s.meetings ?? []; const post = s.tomorrow.map((id) => s.tasks[id]?.title).filter(Boolean);
+    const lines: [string, string][] = [
+      ['Tasks done', `${done.length}/${all.length}`],
+      ['Focus time', dur(s.focusMinutes ?? 0)],
+      ['Meetings', ms.length ? `${ms.length} · ${dur(ms.reduce((a, m) => a + m.minutes, 0))}` : 'none'],
+      ['Postponed', post.length ? post.join(', ') : 'none'],
+    ];
+    if (measured.length && planned !== actual) lines.push([planned > actual ? 'Time saved' : 'Over plan', `${dur(Math.abs(planned - actual))} (planned ${dur(planned)} vs actual ${dur(actual)})`]);
+    const why: string[] = [];
+    if (s.conflictsFixed) why.push(`The planner fixed ${s.conflictsFixed} meeting clash${s.conflictsFixed > 1 ? 'es' : ''}.`);
+    if (measured.length) why.push(planned > actual ? 'Focused tasks finished faster than planned.' : planned < actual ? 'Focused tasks ran longer than planned.' : 'Focused tasks ran to plan.');
+    if (post.length) why.push(`${post.length} task${post.length > 1 ? 's were' : ' was'} postponed to keep the day fitting.`);
+    const tip = post.length ? `Start with "${post[0]}" first thing.` : measured.length && actual < planned ? `Plan ${dur(Math.max(15, Math.round(actual / measured.length / 5) * 5))} blocks for similar tasks.` : done.length < all.length ? 'Schedule fewer blocks before your first meeting.' : 'Keep the same rhythm.';
+    this.summary.mesh.visible = true; this.placeInView(this.summary.mesh, 0.66, -0.05);
+    this.summary.draw((g, W, H) => {
+      panel(g, W, H, C.paper, C.sage, 1);
+      text(g, '🌙 End of day', 36, 36, 26, C.ink, 700);
+      lines.forEach(([k, v], i) => { text(g, k, 36, 82 + i * 30, 18, C.mute, 600); text(g, v, 170, 82 + i * 30, 17, C.ink, 600, W - 190); });
+      const y = 82 + lines.length * 30 + 6;
+      para(g, why.join(' ') || 'A quiet day.', 36, y, 16, W - 70, C.ink);
+      text(g, `Tomorrow: ${tip}`, 36, H - 46, 17, C.sageDeep, 700, W - 60);
+      text(g, 'tap to close', W - 24, H - 18, 13, C.mute, 400, W, 'right');
+    });
+  }
   // Tutorial advances only when the user actually performs each gesture.
   private static TUT = [
     { on: 'pick', msg: '👋 Pinch a card on your desk to pick it up.' },
     { on: 'drop', msg: '📌 Move it toward this timeline and open your fingers to drop it.' },
     { on: 'skip', msg: '💨 Now flick a card quickly sideways to skip it for today.' },
-    { on: 'detail', msg: '👆 Quick pinch (tap) on a card to open its details.' },
+    { on: 'detail', msg: '🎯 Quick pinch (tap) a card to focus on it. 👍 when done.' },
     { on: 'decide', msg: '✨ Tap "Plan for me", then 👍 keep or 👎 undo the change.' },
   ];
   private startTutorial(): void { this.tutStep = 0; this.tutorial.mesh.visible = true; this.tutorial.mesh.scale.setScalar(0.9); this.tutorialStep(); }
@@ -500,18 +631,36 @@ export class MorningDeskSystem extends createSystem({
       text(g, `${i + 1}/5 · tap here to skip`, W - 22, H - 16, 14, '#e6efe7', 500, W, 'right');
     });
   }
+  private demoMsg(): string { const c = this.planner.nextChange(this.s); return c ? `⚠ ${c.summary.split(' Fix:')[0]} Tap "Plan for me".` : ''; }
   private reset(demo: boolean): void {
+    if (this.focus) this.endFocus(false); this.summary.mesh.visible = false;
     for (const it of this.items.values()) it.entity.dispose();
     this.items.clear(); this.pending = null; this.declined.clear(); this.detailId = ''; this.detail.mesh.visible = false;
     this.agentTimer = 0; this.thumb = { dir: 0, t: 0 }; this.endTutorial(); this.hoverId = ''; this.updateTip('');
     if (demo) { clearStorage(); }
     this.s = demo ? demoState() : load();
-    this.agentMsg = demo ? 'Demo loaded: 6h 45m planned for 6h free. Tap "Plan for me".' : '';
+    this.agentMsg = demo ? this.demoMsg() : '';
     save(this.s); this.syncItems(); this.redrawAll();
   }
 
   // ---------------------------------------------------------------- drawing
-  private redrawAll(): void { this.redrawHeader(); this.redrawAgent(); this.growPlant(); }
+  private redrawAll(): void { this.redrawHeader(); this.redrawAgent(); this.growPlant(); this.redrawMeetings(); }
+  private redrawMeetings(): void {
+    const ms = this.s.meetings ?? [];
+    while (this.meetingLabels.length > ms.length) this.wall.remove(this.meetingLabels.pop()!.mesh);
+    ms.forEach((m, i) => {
+      const w = m.minutes * this.pxPerM() - 0.006;
+      const l = this.meetingLabels[i] ?? (this.meetingLabels[i] = new Label(w, TRACK_H + 0.02)); this.wall.add(l.mesh);
+      l.resize(w, TRACK_H + 0.02);
+      l.mesh.position.set(-TRACK_W / 2 + (m.start - this.s.dayStart) * this.pxPerM() + w / 2 + 0.003, 0, 0.002);
+      l.draw((g, W, H) => {
+        g.fillStyle = '#5e6a7a'; g.globalAlpha = 0.9; g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, 14); g.fill(); g.globalAlpha = 1;
+        text(g, '📅', W / 2, H * 0.3, 26, '#fff', 400, W, 'center');
+        text(g, fmt(m.start), W / 2, H * 0.58, 15, '#fff', 700, W - 6, 'center');
+        text(g, m.title, W / 2, H * 0.8, 13, '#eef', 500, W - 6, 'center');
+      });
+    });
+  }
   private redrawHeader(): void {
     const tot = scheduledMinutes(this.s), av = this.s.availableMinutes, over = tot > av;
     this.header.draw((g, W, H) => {
@@ -635,7 +784,7 @@ export class MorningDeskSystem extends createSystem({
       const dy = tt.y - tm.y;
       if (curled && thumbOut && Math.abs(dy) > 0.035) dir = dy > 0 ? 1 : -1;
     }
-    if (dir !== 0 && dir === this.thumb.dir) { this.thumb.t += delta; if (this.thumb.t > 0.4) { this.thumb = { dir: 0, t: -1 }; this.decide(dir > 0); } }
+    if (dir !== 0 && dir === this.thumb.dir) { this.thumb.t += delta; if (this.thumb.t > 0.4) { this.thumb = { dir: 0, t: -1 }; this.onThumb(dir); } }
     else if (this.thumb.t >= 0 || dir === 0) this.thumb = { dir, t: 0 };
   }
   private persistWall(): void {
@@ -685,7 +834,8 @@ export class MorningDeskSystem extends createSystem({
     // details card: soft scale-in
     if (this.detail.mesh.visible) { const d = this.detail.mesh.scale.x; this.detail.mesh.scale.setScalar(d + (1 - d) * k); }
     if (!this.detailId) this.detail.mesh.visible = false;
-    if (this.pending && this.inXR()) this.detectThumbs(delta);
+    if ((this.pending || this.focus) && this.inXR()) this.detectThumbs(delta);
+    this.updateFocus(delta);
     this.persistWall();
     // agent acts on its own after a short beat
     if (this.agentTimer > 0) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }

@@ -1,9 +1,9 @@
-import { clone, dur, PlanState, scheduledMinutes } from './state.js';
+import { clone, dur, fmt, layout, PlanState, scheduledMinutes } from './state.js';
 
 /** One concrete change the planner agent made. It is applied immediately (visibly);
  *  thumbs-down restores `before`. */
 export interface PlanChange {
-  kind: 'split' | 'defer' | 'shorten';
+  kind: 'split' | 'defer' | 'shorten' | 'conflict';
   summary: string;
   before: PlanState;
   after: PlanState;
@@ -18,6 +18,23 @@ export const MAX_BLOCK = 90;
 
 export class RulePlanner implements Planner {
   nextChange(s: PlanState): PlanChange | null {
+    // 0) Constraint: a block that runs into a fixed meeting. Fill the free gap, continue after the meeting.
+    const { slots } = layout(s);
+    for (const id of s.timeline) {
+      const sl = slots[id]; const m = sl.clash; if (!m) continue;
+      const task = s.tasks[id]; const gap = m.start - sl.start;
+      const after = clone(s); after.conflictsFixed = (s.conflictsFixed ?? 0) + 1;
+      const head = `"${task.title}" (${dur(task.minutes)}) runs into your ${fmt(m.start)} ${m.title}: only ${dur(gap)} free.`;
+      if (gap >= 15) {
+        const a = `${id}~a`, b = `${id}~b`;
+        after.tasks[a] = { ...task, id: a, minutes: gap, title: `${task.title} (part 1)`, partOf: id, after: undefined };
+        after.tasks[b] = { ...task, id: b, minutes: task.minutes - gap, title: `${task.title} (part 2)`, partOf: id, after: m.id };
+        after.timeline.splice(after.timeline.indexOf(id), 1, a, b); delete after.tasks[id];
+        return { kind: 'conflict', summary: `${head} Fix: ${dur(gap)} now, ${dur(task.minutes - gap)} after the meeting`, before: clone(s), after };
+      }
+      after.tasks[id] = { ...task, after: m.id };
+      return { kind: 'conflict', summary: `${head} Fix: move it after the meeting`, before: clone(s), after };
+    }
     // 1) Split any scheduled task longer than 90 min into <=90 min cards.
     for (const id of s.timeline) {
       const task = s.tasks[id];
@@ -44,9 +61,10 @@ export class RulePlanner implements Planner {
     }
     // 2) Overload: defer lowest-priority, latest blocks to tomorrow until it fits.
     const total = scheduledMinutes(s);
+    if (total > s.availableMinutes && !s.timeline.some((id) => !s.tasks[id].done)) return null;
     if (total > s.availableMinutes) {
       const over = total - s.availableMinutes;
-      const candidates = [...s.timeline].reverse().sort((a, b) => s.tasks[b].priority - s.tasks[a].priority);
+      const candidates = [...s.timeline].filter((id) => !s.tasks[id].done).reverse().sort((a, b) => s.tasks[b].priority - s.tasks[a].priority);
       const pick = candidates.find((id) => s.tasks[id].minutes >= over) ?? candidates[0];
       const after = clone(s);
       after.timeline = after.timeline.filter((x) => x !== pick);

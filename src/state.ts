@@ -6,7 +6,12 @@ export interface Task {
   priority: 1 | 2 | 3; // 1 = must, 3 = nice-to-have
   note: string;
   partOf?: string;
+  after?: string;   // meeting id: this block may not start before that meeting ends
+  done?: boolean;
+  actual?: number;  // measured focus minutes once done (planned = minutes)
 }
+/** Fixed calendar event (not movable by the planner). */
+export interface Meeting { id: string; title: string; start: number; minutes: number; }
 export interface PlanState {
   tasks: Record<string, Task>;
   stack: string[]; // desk stack, top first
@@ -18,6 +23,9 @@ export interface PlanState {
   streak: number;
   lastDone: string; // YYYY-MM-DD
   tutorialSeen: boolean;
+  meetings?: Meeting[];
+  focusMinutes?: number;   // measured focus time today
+  conflictsFixed?: number;
 }
 export const IS_DEMO = new URLSearchParams(location.search).has('demo');
 // demo runs keep their own key so they never overwrite (or mark the tutorial seen for) a real visit
@@ -42,28 +50,46 @@ export function sampleState(): PlanState {
   };
 }
 
-/** Fixed demo state: a 3 h task (forces a split) and 7 h scheduled vs 6 h free (forces overload). */
+/** Fixed demo state: a 14:00 meeting and a 90-min deep-work block with only 60 min free before it. */
 export function demoState(): PlanState {
   const tasks = [
-    t('report', 'Deep work: quarterly report', 180, 1, 'The big one. Charts + summary.'),
     t('standup', 'Team standup', 15, 1, 'Share yesterday, today, blockers.'),
     t('review', 'Design review', 60, 1, 'Walk through the new onboarding screens.'),
-    t('gym', 'Gym session', 60, 2, 'Legs day. Bring water.'),
-    t('blog', 'Write blog draft', 90, 3, 'Outline + first 500 words.'),
-    t('inbox', 'Inbox sweep', 30, 3, 'Archive, reply to the 3 flagged mails.'),
-    t('plants', 'Water the plants', 10, 3, 'Balcony + desk plant.'),
+    t('inbox', 'Inbox sweep', 30, 2, 'Archive, reply to the 3 flagged mails.'),
     t('call', 'Call the electrician', 15, 2, 'Ask about the kitchen socket.'),
+    t('deep', 'Deep work: quarterly report', 90, 1, 'The big one. Charts + summary.'),
+    t('gym', 'Gym session', 60, 2, 'Legs day. Bring water.'),
+    t('blog', 'Write blog draft', 45, 3, 'Outline + first 500 words.'),
+    t('plants', 'Water the plants', 10, 3, 'Balcony + desk plant.'),
+    t('read', 'Read 20 pages', 30, 3, 'Current book, paper copy.'),
   ];
   return {
     tasks: Object.fromEntries(tasks.map((x) => [x.id, x])),
-    stack: ['inbox', 'plants', 'call'],
-    timeline: ['standup', 'report', 'review', 'gym', 'blog'], // 405 min
+    stack: ['blog', 'plants', 'read'],
+    timeline: ['standup', 'review', 'inbox', 'call', 'deep', 'gym'], // deep work starts 13:00, meeting at 14:00
     tomorrow: [], skipped: [],
-    dayStart: 9 * 60, availableMinutes: 6 * 60,
+    dayStart: 11 * 60, availableMinutes: 6 * 60,
     streak: 4, lastDone: '', tutorialSeen: true,
+    meetings: [{ id: 'm-client', title: 'Client sync', start: 14 * 60, minutes: 60 }],
+    focusMinutes: 0, conflictsFixed: 0,
   };
 }
 
+export interface Slot { start: number; end: number; clash?: Meeting; }
+/** Pack the timeline from dayStart around fixed meetings. A block that runs into a meeting is a clash. */
+export function layout(s: PlanState): { slots: Record<string, Slot>; end: number } {
+  const ms = [...(s.meetings ?? [])].sort((a, b) => a.start - b.start);
+  const slots: Record<string, Slot> = {}; let cur = s.dayStart;
+  for (const id of s.timeline) {
+    const t = s.tasks[id]; const m = t.done ? (t.actual ?? t.minutes) : t.minutes;
+    if (t.after) { const mm = ms.find((x) => x.id === t.after); if (mm) cur = Math.max(cur, mm.start + mm.minutes); }
+    for (const x of ms) if (cur >= x.start && cur < x.start + x.minutes) cur = x.start + x.minutes;
+    const end = cur + m;
+    const clash = t.done ? undefined : ms.find((x) => x.start > cur && x.start < end);
+    slots[id] = { start: cur, end, clash }; cur = end;
+  }
+  return { slots, end: Math.max(cur, s.dayStart) };
+}
 export function load(): PlanState {
   if (IS_DEMO) return demoState();
   try {
@@ -79,7 +105,8 @@ export function save(s: PlanState): void {
   try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ }
 }
 export const clone = (s: PlanState): PlanState => JSON.parse(JSON.stringify(s));
-export const scheduledMinutes = (s: PlanState) => s.timeline.reduce((a, id) => a + s.tasks[id].minutes, 0);
+/** Minutes from day start to the end of the last block (meetings included). */
+export const scheduledMinutes = (s: PlanState) => (s.timeline.length ? layout(s).end - s.dayStart : 0);
 export const today = () => new Date().toISOString().slice(0, 10);
 
 /** Marks today's ritual complete; extends or resets the streak. Returns new streak. */

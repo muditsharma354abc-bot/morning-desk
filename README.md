@@ -73,7 +73,7 @@ Press **✓ Done** on the desk to close the day. Your streak goes up (if you als
 
 It ends with a short rule-based note on why the day went that way and one suggestion for tomorrow.
 
-![Day so far summary: 1 of 6 scheduled done, 24m focus, 6m saved (planned 30m vs actual 24m), 1 meeting clash fixed](docs/screenshots/04-day-summary-final.png)
+![Day so far summary: 1 of 6 scheduled done, 26m focus, 4m saved (planned 30m vs actual 26m), 1 meeting clash fixed](docs/screenshots/04-day-summary-final.png)
 
 ## Hands-only interactions
 

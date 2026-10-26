@@ -197,6 +197,7 @@ export class MorningDeskSystem extends createSystem({
     const q = new URLSearchParams(location.search);
     // first real visit (or ?tutorial=1): start the hands tutorial automatically; never in demo/autoplay
     if ((!this.s.tutorialSeen && !q.has('demo')) || q.has('tutorial')) setTimeout(() => this.startTutorial(), 1200);
+    if (q.has('voice')) void import('./voice.js').then((m) => m.enableVoice(this)); // optional, off by default
     if (q.has('autoplay')) setTimeout(() => void import('./autoplay.js').then((m) => m.runAutoplay(this as never, this.world)), 1500);
     if (new URLSearchParams(location.search).has('demo')) this.agentMsg = this.demoMsg();
   }

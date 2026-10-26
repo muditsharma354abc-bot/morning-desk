@@ -623,7 +623,7 @@ export class MorningDeskSystem extends createSystem({
       ['Postponed', post.length ? post.join(', ') : 'none'],
     ];
     if (measured.length && planned !== actual) lines.push([planned > actual ? 'Time saved' : 'Over plan', `${dur(Math.abs(planned - actual))} (planned ${dur(planned)} vs actual ${dur(actual)})`]);
-    if (measured.length && planned !== actual && IS_DEMO) lines.push(['', '↳ (demo clock, accelerated)']);
+    if (measured.length && planned !== actual && IS_DEMO) lines.push(['', '(demo clock, accelerated)']);
     const why: string[] = [];
     if (s.conflictsFixed) why.push(`The planner fixed ${s.conflictsFixed} meeting clash${s.conflictsFixed > 1 ? 'es' : ''}.`);
     if (measured.length) why.push(planned > actual ? 'Focused tasks finished faster than planned.' : planned < actual ? 'Focused tasks ran longer than planned.' : 'Focused tasks ran to plan.');

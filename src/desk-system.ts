@@ -242,7 +242,7 @@ export class MorningDeskSystem extends createSystem({
       const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
       g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
     };
-    side(this.left, 37, 0.9, -0.04); side(this.right, -29, 0.85, 0.04); // inside a ~16:9 capture FoV
+    side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17); // below the timeline, right of the desk // inside a ~16:9 capture FoV
     for (const pe of this.queries.planes.entities) this.tryWall(pe);
     this.placed = true; this.redrawHeader();
   }

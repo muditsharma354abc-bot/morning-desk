@@ -63,7 +63,7 @@ export class MorningDeskSystem extends createSystem({
   private tutStep = -1;
   private placed = false;
   private drag: { id: string; t0: number; p0: Vector3; hist: { t: number; p: Vector3 }[] } | null = null;
-  private mouseDrag: { id: string; depth: number } | null = null;
+  private mouseDrag: { id: string; depth: number; px: { t: number; x: number; y: number }[]; maxPx: number } | null = null;
   private tmp = new Vector3(); private tmp2 = new Vector3(); private q = new Quaternion();
   private detailId = '';
   private plantGrow = 0;
@@ -84,6 +84,8 @@ export class MorningDeskSystem extends createSystem({
   noAutoAgent = false; // autoplay asks the planner explicitly
 
   init(): void {
+    // ?tutorial=1: fresh start: wipe saved desk/card/wall state, then the sample desk loads (never in demo)
+    { const tq = new URLSearchParams(location.search); if (tq.has('tutorial') && !tq.has('demo')) clearStorage(); }
     this.s = load();
     if (import.meta.env.DEV) (window as unknown as { __mdTest: unknown }).__mdTest = this; // dev-server test hook only
     const scene = this.world.scene;
@@ -174,6 +176,8 @@ export class MorningDeskSystem extends createSystem({
       if (performance.now() - this.lastDomPress <= 400) return;
       const b = this.buttons.get(e.index); if (b) { b.action(); return; }
       // ray + pinch on a task (e.g. a timeline block out of reach) opens Focus Mode
+      // flat view: the mouse handler decides click (Focus) vs drag/flick on release; a press here would open Focus mid-drag
+      if (!this.inXR()) return;
       const it = [...this.items.values()].find((x) => x.entity.index === e.index); if (!it) return;
       if (this.focus?.phase === 'ask') this.moreTime(); else if (!this.focus) { this.startFocus(it.id); this.tutEvent('detail'); }
     });
@@ -196,10 +200,7 @@ export class MorningDeskSystem extends createSystem({
       // (input mode left to the IWER toolbar: setting it from code desynced the devui corner panels)
       // ?hands=1: same switch autoplay uses (clicks the IWER toolbar → Hands), once per session; autoplay does its own
       const hq = new URLSearchParams(location.search);
-      if (iwer && this.inXR() && hq.has('hands') && !hq.has('autoplay') && !this.handsSet) {
-        this.handsSet = true;
-        void import('./autoplay.js').then(async (m) => { await new Promise((r) => setTimeout(r, 1500)); await m.selectHandsInToolbar(); iwer.primaryInputMode = 'hand'; });
-      }
+      if (iwer && this.inXR() && hq.has('hands') && !hq.has('autoplay')) this.handsOn();
       for (const id of ['hud', 'hint']) { const el = document.getElementById(id); if (el) el.style.display = this.inXR() ? 'none' : ''; }
     }));
     this.hookDom();
@@ -423,10 +424,10 @@ export class MorningDeskSystem extends createSystem({
     const m = !ref ? 0 : (list[idx] ? sl[ref].start : sl[ref].end) - this.s.dayStart;
     this.marker.position.set(-TRACK_W / 2 + m * this.pxPerM(), 0, 0.012);
   }
-  private release(id: string, p: Vector3, lateralSpeed: number, moved: number, held: number): void {
+  private release(id: string, p: Vector3, lateralSpeed: number, moved: number, held: number, flick = false): void {
     this.marker.visible = false;
     if (moved < (this.inXR() ? 0.04 : 0.025) && held < (this.inXR() ? 4 : 0.5)) { if (this.focus?.phase === 'ask') { this.moreTime(); return; } if (!this.focus) { this.startFocus(id); this.tutEvent('detail'); } return; }
-    const idx = this.wallSlot(p);
+    const idx = flick ? null : this.wallSlot(p);
     const s = this.s;
     const strip = (arr: string[]) => arr.filter((x) => x !== id);
     if (idx !== null) {
@@ -552,6 +553,7 @@ export class MorningDeskSystem extends createSystem({
   focusElapsed(): number { const f = this.focus; return f ? f.base + (f.phase === 'run' ? (performance.now() - f.t0) / 60000 * FOCUS_ACCEL : 0) : 0; }
   startFocus(id: string): void {
     if (!this.s.tasks[id] || this.s.tasks[id].done) return;
+    document.body.dataset.focus = id; // test/automation hook, not rendered
     this.focus = { id, length: 25, t0: performance.now(), base: 0, phase: 'run', shown: '' };
     this.focusPanel.mesh.visible = true; this.focusPanel.mesh.scale.setScalar(0.8);
     this.placeInView(this.focusPanel.mesh, 0.62, -0.15);
@@ -566,7 +568,7 @@ export class MorningDeskSystem extends createSystem({
   endFocus(done: boolean): void {
     const f = this.focus; if (!f) return;
     const mins = Math.max(1, Math.round(this.focusElapsed()));
-    this.focus = null; this.focusPanel.mesh.visible = false; this.dim.visible = false;
+    delete document.body.dataset.focus; this.focus = null; this.focusPanel.mesh.visible = false; this.dim.visible = false;
     for (const it of this.items.values()) (it.label.mesh.material as MeshBasicMaterial).opacity = 1;
     this.s.focusMinutes = (this.s.focusMinutes ?? 0) + mins;
     if (!done) { save(this.s); this.redrawAll(); return; }
@@ -664,14 +666,14 @@ export class MorningDeskSystem extends createSystem({
     { on: 'detail', msg: '🎯 Quick pinch (tap) a card to focus on it. 👍 when done.' },
     { on: 'decide', msg: '✨ Tap "Plan for me", then 👍 keep or 👎 undo the change.' },
   ];
-  private startTutorial(): void { this.tutStep = 0; this.tutorial.mesh.visible = true; this.tutorial.mesh.scale.setScalar(0.9); this.tutorialStep(); }
+  private startTutorial(): void { this.tutStep = 0; document.body.dataset.tutStep = '0'; this.tutorial.mesh.visible = true; this.tutorial.mesh.scale.setScalar(0.9); this.tutorialStep(); }
   private endTutorial(): void {
     if (this.tutStep >= 0) { this.s.tutorialSeen = true; save(this.s); } // seen only once finished or skipped
     this.tutStep = -1; this.tutorial.mesh.visible = false;
   }
   private tutEvent(ev: string): void {
     if (this.tutStep < 0 || MorningDeskSystem.TUT[this.tutStep].on !== ev) return;
-    this.tutStep++; sfx.yes();
+    this.tutStep++; sfx.yes(); document.body.dataset.tutStep = String(this.tutStep); // test/automation hook, not rendered
     if (this.tutStep >= MorningDeskSystem.TUT.length) {
       this.tutorial.draw((g, W, H) => { panel(g, W, H, C.sageDeep, undefined, 1); text(g, '🌿 You\'re ready. Plan your morning!', W / 2, H / 2, 24, '#fff', 600, W - 30, 'center'); });
       setTimeout(() => this.endTutorial(), 2500); this.tutStep = 99; return;
@@ -771,7 +773,7 @@ export class MorningDeskSystem extends createSystem({
       if (id?.startsWith('btn:')) { this.lastDomPress = performance.now(); this.buttons.get(Number(id.slice(4)))?.action(); return; }
       if (!id) return;
       const mesh = this.items.get(id)!.label.mesh;
-      this.mouseDrag = { id, depth: mesh.position.distanceTo(this.world.camera.position) };
+      this.mouseDrag = { id, depth: mesh.position.distanceTo(this.world.camera.position), px: [{ t: performance.now(), x: e.clientX, y: e.clientY }], maxPx: 0 };
       const p = mesh.position.clone();
       this.drag = { id, t0: performance.now(), p0: p, hist: [{ t: performance.now(), p }] }; sfx.pick(); this.tutEvent('pick');
     });
@@ -782,13 +784,21 @@ export class MorningDeskSystem extends createSystem({
       const p = cam.position.clone().addScaledVector(dir, Math.min(this.mouseDrag.depth, 0.6));
       this.items.get(this.mouseDrag.id)!.label.mesh.position.copy(p);
       this.drag.hist.push({ t: performance.now(), p }); if (this.drag.hist.length > 120) this.drag.hist.shift();
+      const md = this.mouseDrag; md.px.push({ t: performance.now(), x: e.clientX, y: e.clientY }); if (md.px.length > 120) md.px.shift();
+      md.maxPx = Math.max(md.maxPx, Math.hypot(e.clientX - md.px[0].x, e.clientY - md.px[0].y));
       this.markerAt(this.wallSlot(p));
     }, { capture: true });
     // tooltip should not linger after a drop
     window.addEventListener('pointerup', () => { this.hoverId = ''; }, { capture: true });
-    window.addEventListener('pointerup', () => { if (this.mouseDrag) { this.endDrag(); this.mouseDrag = null; } });
+    window.addEventListener('pointerup', (e: PointerEvent) => { if (this.mouseDrag) { this.endMouseDrag(e); this.mouseDrag = null; } });
     const bind = (id: string, fn: () => void) => document.getElementById(id)?.addEventListener('click', fn);
-    bind('btn-enter', () => this.world.launchXR());
+    bind('btn-enter', () => {
+      // ?hands=1: enter the emulator already in hand mode (as autoplay does), then sync the IWER toolbar
+      const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE;
+      const hq = new URLSearchParams(location.search);
+      if (iwer && hq.has('hands') && !hq.has('autoplay')) iwer.primaryInputMode = 'hand';
+      this.world.launchXR();
+    });
     bind('btn-plan', () => this.runAgent(true));
     bind('btn-done', () => this.finishDay());
     bind('btn-tutorial', () => this.startTutorial());
@@ -818,6 +828,35 @@ export class MorningDeskSystem extends createSystem({
     let x: { visible: boolean; parent: unknown } | null = o;
     while (x) { if (!x.visible) return false; x = x.parent as typeof x; }
     return true;
+  }
+  /** Desktop drag end: judged in screen pixels (world motion at <=0.6 m is tiny, so fast drags read as clicks). */
+  /** ?hands=1: switch the IWER emulator to hand tracking, once per XR session (same path autoplay uses). */
+  private handsOn(): void {
+    if (this.handsSet) return; this.handsSet = true;
+    const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE; if (!iwer) return;
+    void import('./autoplay.js').then(async (m) => {
+      for (let i = 0; i < 3; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        if (!this.inXR()) { this.handsSet = false; return; }
+        await m.selectHandsInToolbar(); iwer.primaryInputMode = 'hand';
+        if (iwer.primaryInputMode === 'hand') break;
+      }
+    });
+  }
+  private endMouseDrag(e: PointerEvent): void {
+    const md = this.mouseDrag, d = this.drag; if (!md || !d || d.id !== md.id) { this.endDrag(); return; }
+    const now = performance.now(); md.px.push({ t: now, x: e.clientX, y: e.clientY });
+    md.maxPx = Math.max(md.maxPx, Math.hypot(e.clientX - md.px[0].x, e.clientY - md.px[0].y));
+    // flick: >=60 px mostly-horizontal within the last 300 ms at >=500 px/s
+    const w0 = md.px.find((q) => now - q.t <= 300) ?? md.px[0];
+    const dx = e.clientX - w0.x, dy = e.clientY - w0.y, dt = Math.max(0.016, (now - w0.t) / 1000);
+    const flick = Math.abs(dx) >= 60 && Math.abs(dx) > 1.5 * Math.abs(dy) && Math.abs(dx) / dt >= 500;
+    if (!flick && md.maxPx < 6) { this.endDrag(); return; } // plain click/tap: unchanged (opens Focus)
+    this.drag = null;
+    const it = this.items.get(d.id); if (!it) return;
+    const p = it.label.mesh.position.clone();
+    // moved >= click threshold so a real drag never opens Focus; a flick skips like the XR flick
+    this.release(d.id, p, flick ? Math.sign(dx) * (SWIPE_SPEED + 1) : 0, Math.max(0.1, p.distanceTo(d.p0)), (now - d.t0) / 1000, flick);
   }
   private endDrag(): void {
     const d = this.drag; if (!d) return; this.drag = null;

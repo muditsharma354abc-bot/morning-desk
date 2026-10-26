@@ -51,7 +51,7 @@ Tap **✨ Plan for me** and the planner proposes one concrete change at a time. 
 
 It checks, in this order:
 
-1. **Meeting clash.** In the demo, "Deep work: quarterly report" (90 min) starts at 13:00 and runs into the 14:00 Client sync, leaving only 60 minutes. The fix splits it: 60 minutes before the meeting, the remaining 30 minutes after it. If the free gap is under 15 minutes, the block moves after the meeting instead.
+1. **Meeting clash.** In the demo, "Deep work: quarterly report" (90 min) runs into the 14:00 Client sync. The planner splits it around the meeting: the first part fills the free time before 14:00, and the rest goes straight after the meeting. The meeting stays put and the full 90 minutes still fit. How the split falls depends on when the block starts. If the free gap before the meeting is under 15 minutes, the whole block moves after the meeting instead. A thumbs-up keeps the fix.
 2. **Long blocks.** Any block longer than 90 minutes is split into focus blocks of 90 minutes or less, with another task between the parts so you get a break.
 3. **Overload.** If the day runs past your free time, it says by how much and moves a low-priority block to a **Tomorrow** row.
 

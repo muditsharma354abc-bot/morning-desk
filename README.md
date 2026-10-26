@@ -106,7 +106,6 @@ The autoplay demo selects the emulator's hands mode by itself. To pinch by hand 
 - Everything has been run in the built-in WebXR emulator (IWER) only. Nothing has been tested on a real Quest 3 yet, so wall detection, anchors, hand tracking and performance on the headset are unverified.
 - Manual pinch through the emulator's pinch latch has been verified by script, but not yet by a person dragging by hand.
 - Ray pinch on far timeline blocks is untested.
-- Voice input is not built.
 
 ## Wall anchor and fallback
 

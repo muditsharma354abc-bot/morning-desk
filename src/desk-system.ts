@@ -55,6 +55,8 @@ export class MorningDeskSystem extends createSystem({
   private declined = new Set<string>();
   private agentMsg = '';
   private agentTimer = 0;
+  private justKept = false;
+  private handsSet = false;
   private wallMode: 'detected' | 'fallback' = 'fallback';
   private restored = false;
   private placeDelay = 0;
@@ -102,7 +104,7 @@ export class MorningDeskSystem extends createSystem({
     this.desk.add(tray.mesh);
     this.buildPlant();
     this.streakLabel = new Label(0.2, 0.034);
-    this.streakLabel.mesh.position.set(0.27, 0.012, -0.085); this.streakLabel.mesh.rotation.x = -1.0; this.desk.add(this.streakLabel.mesh); // tag lying just behind the pot, clear of the cards
+    this.streakLabel.mesh.position.set(0.27, 0.012, 0.06); this.streakLabel.mesh.rotation.x = -1.0; this.desk.add(this.streakLabel.mesh); // tag in front of the pot, so the plant never hides it
 
     // Wall: header + track + agent panel.
     this.header = new Label(TRACK_W + 0.2, 0.09);
@@ -120,11 +122,11 @@ export class MorningDeskSystem extends createSystem({
     this.marker = new Mesh(new CylinderGeometry(0.004, 0.004, TRACK_H + 0.05, 8), new MeshStandardMaterial({ color: C.sageDeep, emissive: new Color(C.sage), emissiveIntensity: 0.6 }));
     this.marker.visible = false; this.wall.add(this.marker);
     this.tip = new Label(0.3, 0.05); this.tip.mesh.visible = false; this.wall.add(this.tip.mesh);
-    this.agentPanel = new Label(0.62, 0.11);
-    this.agentPanel.mesh.position.set(-0.12, -0.25, 0.01); this.wall.add(this.agentPanel.mesh);
+    this.agentPanel = new Label(0.56, 0.12);
+    this.agentPanel.mesh.position.set(-0.15, -0.25, 0.01); this.wall.add(this.agentPanel.mesh);
     this.yesBtn = this.button('👍 Keep', 0.13, () => this.decide(true), this.wallE);
     this.noBtn = this.button('👎 Undo', 0.13, () => this.decide(false), this.wallE);
-    this.yesBtn.label.mesh.position.set(0.3, -0.22, 0.01); this.noBtn.label.mesh.position.set(0.3, -0.28, 0.01);
+    this.yesBtn.label.mesh.position.set(0.2, -0.22, 0.01); this.noBtn.label.mesh.position.set(0.2, -0.28, 0.01); // clear of the Pending pile
 
     // Desk buttons (reachable row at the back of the desk).
     const row: [string, () => void][] = [
@@ -192,6 +194,12 @@ export class MorningDeskSystem extends createSystem({
       // hands-first: in the desktop emulator, switch to emulated hands (the devui can switch back)
       const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE;
       // (input mode left to the IWER toolbar: setting it from code desynced the devui corner panels)
+      // ?hands=1: same switch autoplay uses (clicks the IWER toolbar → Hands), once per session; autoplay does its own
+      const hq = new URLSearchParams(location.search);
+      if (iwer && this.inXR() && hq.has('hands') && !hq.has('autoplay') && !this.handsSet) {
+        this.handsSet = true;
+        void import('./autoplay.js').then(async (m) => { await new Promise((r) => setTimeout(r, 1500)); await m.selectHandsInToolbar(); iwer.primaryInputMode = 'hand'; });
+      }
       for (const id of ['hud', 'hint']) { const el = document.getElementById(id); if (el) el.style.display = this.inXR() ? 'none' : ''; }
     }));
     this.hookDom();
@@ -362,12 +370,13 @@ export class MorningDeskSystem extends createSystem({
         panel(g, W, H, t.done ? '#dfe6dc' : over ? C.warn : C.prio[t.priority], undefined, t.done ? 0.7 : 0.95);
         if (W < 120) {
           // narrow block: no clipped words, just a glyph + duration (full title shows on hover)
-          text(g, t.done ? '✓' : iconFor(t.title), W / 2, H * 0.38, Math.min(30, W * 0.6), C.ink, 400, W, 'center');
-          text(g, dur(t.minutes), W / 2, H * 0.72, 16, C.ink, 600, W - 6, 'center');
+          text(g, t.done ? '✓' : iconFor(t.title), W / 2, H * 0.38, Math.min(30, W * 0.55), C.ink, 400, W, 'center');
+          const ds = dur(t.minutes); let fs = 18; g.font = `600 ${fs}px system-ui`; while (fs > 10 && g.measureText(ds).width > W - 8) { fs--; g.font = `600 ${fs}px system-ui`; }
+          text(g, ds, W / 2, H * 0.72, fs, C.ink, 600, W, 'center'); // fit, never ellipsised
         } else {
           const lines = this.wrap(g, `${t.done ? '✓ ' : ''}${t.title}`, W - 18, 21, 2);
           lines.forEach((ln, i) => text(g, ln, 10, H * (lines.length > 1 ? 0.22 + i * 0.26 : 0.32), 21, C.ink, 700, W - 16));
-          text(g, `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${t.done ? `${dur(t.actual ?? t.minutes)} of ${dur(t.minutes)}` : dur(t.minutes)}`, 10, H * 0.8, 17, C.ink, 500, W - 16);
+          text(g, `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${t.done ? `${dur(t.actual ?? t.minutes)} of ${dur(t.minutes)}` : dur(t.minutes)}`, 10, H * 0.8, 18, C.ink, 500, W - 16);
         }
       } else {
         panel(g, W, H, '#fbf8f1', C.prio[t.priority], 1);
@@ -448,16 +457,16 @@ export class MorningDeskSystem extends createSystem({
     if (!c || this.declined.has(c.summary)) {
       this.pending = null;
       const tot = scheduledMinutes(this.s);
-      this.agentMsg = tot ? `Plan fits: ${dur(tot)} of ${dur(this.s.availableMinutes)} free. Nice and calm.` : 'Drag a few cards onto the timeline first.';
+      this.agentMsg = (this.justKept ? '✓ Kept. ' : '') + (tot ? `Plan fits: ${dur(tot)} of ${dur(this.s.availableMinutes)} free. Nice and calm.` : 'Drag a few cards onto the timeline first.'); this.justKept = false;
       this.redrawAgent(); return;
     }
-    this.pending = c; this.s = clone(c.after); this.agentMsg = c.summary;
+    this.pending = c; this.s = clone(c.after); this.agentMsg = c.summary; this.justKept = false;
     if (c.kind === 'split') sfx.split(); else sfx.agent(); save(this.s); this.syncItems(); this.redrawAll();
   }
   private decide(ok: boolean): void {
     if (!this.pending) return;
     this.tutEvent('decide');
-    if (ok) { sfx.yes(); this.pending = null; this.agentTimer = 0.9; }
+    if (ok) { sfx.yes(); this.pending = null; this.agentTimer = 0.9; this.justKept = true; this.agentMsg = '✓ Kept. Your day is updated.'; }
     else { sfx.no(); this.declined.add(this.pending.summary); this.s = clone(this.pending.before); this.pending = null; this.agentMsg = 'Undone. Your call.'; save(this.s); this.syncItems(); }
     this.redrawAll();
   }
@@ -649,7 +658,7 @@ export class MorningDeskSystem extends createSystem({
   }
   // Tutorial advances only when the user actually performs each gesture.
   private static TUT = [
-    { on: 'pick', msg: '👋 Pinch a card on your desk to pick it up.' },
+    { on: 'pick', msg: '👋 Pinch (or drag) a card on your desk to pick it up.' },
     { on: 'drop', msg: '📌 Move it toward this timeline and open your fingers to drop it.' },
     { on: 'skip', msg: '💨 Now flick a card quickly sideways to skip it for today.' },
     { on: 'detail', msg: '🎯 Quick pinch (tap) a card to focus on it. 👍 when done.' },
@@ -674,7 +683,7 @@ export class MorningDeskSystem extends createSystem({
     this.tutorial.draw((g, W, H) => {
       panel(g, W, H, C.sageDeep, undefined, 1);
       para(g, st.msg, 26, 18, 22, W - 60, '#fff');
-      text(g, `${i + 1}/5 · tap here to skip`, W - 22, H - 16, 14, '#e6efe7', 500, W, 'right');
+      text(g, `${i + 1}/5 · tap here to skip`, W - 22, H - 18, 19, '#e6efe7', 600, W, 'right');
     });
   }
   private demoMsg(): string { const c = this.planner.nextChange(this.s); return c ? `⚠ ${c.summary.split(' Fix:')[0]} Tap "Plan for me".` : ''; }
@@ -704,7 +713,7 @@ export class MorningDeskSystem extends createSystem({
         text(g, m.title, 34, y + 24, 20, C.ink, 600, W - 60);
         if (clash.has(m.id)) text(g, '⚠ a task runs into this', 34, y + 50, 16, '#b9772e', 700, W - 60);
       });
-      text(g, 'Fixed times', 34, H - 24, 15, C.mute, 500, W - 50);
+      text(g, 'Fixed times', 34, H - 24, 18, C.mute, 600, W - 50);
     });
     const tasks = [...s.timeline, ...s.tomorrow, ...s.stack].filter((id) => s.tasks[id]);
     const done = s.timeline.filter((id) => s.tasks[id].done);
@@ -727,8 +736,8 @@ export class MorningDeskSystem extends createSystem({
       l.draw((g, W, H) => {
         g.fillStyle = '#5e6a7a'; g.globalAlpha = 0.9; g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, 14); g.fill(); g.globalAlpha = 1;
         text(g, '📅', W / 2, H * 0.3, 26, '#fff', 400, W, 'center');
-        text(g, fmt(m.start), W / 2, H * 0.58, 15, '#fff', 700, W - 6, 'center');
-        text(g, m.title, W / 2, H * 0.8, 13, '#eef', 500, W - 6, 'center');
+        text(g, fmt(m.start), W / 2, H * 0.58, 17, '#fff', 700, W - 6, 'center');
+        text(g, m.title, W / 2, H * 0.8, 15, '#eef', 500, W - 6, 'center');
       });
     });
   }
@@ -746,8 +755,8 @@ export class MorningDeskSystem extends createSystem({
     this.yesBtn.label.mesh.visible = this.noBtn.label.mesh.visible = show;
     this.agentPanel.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sky, 1);
-      text(g, show ? '✨ Planner changed your day' : '✨ Planner', 34, 26, 18, C.sageDeep, 700);
-      para(g, this.agentMsg || 'Watching your plan for overload and blocks over 90 minutes.', 34, 46, 18, W - 60);
+      text(g, show ? '✨ Planner changed your day' : '✨ Planner', 34, 26, 20, C.sageDeep, 700);
+      para(g, this.agentMsg || 'Watching your plan for overload and blocks over 90 minutes.', 34, 46, 19, W - 50);
     });
     this.redrawHeader();
   }

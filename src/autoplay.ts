@@ -160,7 +160,7 @@ function caption(): HTMLDivElement {
 }
 
 /** Click the IWER devui toolbar's input-mode menu → Hands (same as a person would). */
-async function selectHandsInToolbar(): Promise<void> {
+export async function selectHandsInToolbar(): Promise<void> {
   const find = (pred: (b: HTMLElement) => boolean): HTMLElement | undefined => {
     const walk = (r: Document | ShadowRoot): HTMLElement | undefined => {
       for (const el of r.querySelectorAll<HTMLElement>('*')) {

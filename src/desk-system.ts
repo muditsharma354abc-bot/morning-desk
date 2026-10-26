@@ -610,7 +610,7 @@ export class MorningDeskSystem extends createSystem({
     const planned = measured.reduce((a, id) => a + s.tasks[id].minutes, 0), actual = measured.reduce((a, id) => a + (s.tasks[id].actual ?? 0), 0);
     const ms = s.meetings ?? []; const post = s.tomorrow.map((id) => s.tasks[id]?.title).filter(Boolean);
     const lines: [string, string][] = [
-      ['Tasks done', `${doneN}/${today.length} scheduled${unsched ? ` · ${unsched} not scheduled` : ''}`],
+      ['Tasks', `${doneN} of ${today.length} scheduled done${unsched ? ` · ${unsched} not scheduled` : ''}`],
       ['Focus time', dur(s.focusMinutes ?? 0)],
       ['Meetings', ms.length ? `${ms.length} · ${dur(ms.reduce((a, m) => a + m.minutes, 0))}` : 'none'],
       ['Postponed', post.length ? post.join(', ') : 'none'],
@@ -624,7 +624,7 @@ export class MorningDeskSystem extends createSystem({
     this.summary.mesh.visible = true; this.placeInView(this.summary.mesh, 0.62, -0.12);
     this.summary.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sage, 1);
-      text(g, '🌙 End of day', 36, 36, 26, C.ink, 700);
+      text(g, '🌙 Day so far', 36, 36, 26, C.ink, 700);
       lines.forEach(([k, v], i) => { text(g, k, 36, 82 + i * 30, 18, C.mute, 600); text(g, v, 170, 82 + i * 30, 17, C.ink, 600, W - 190); });
       const y = 82 + lines.length * 30 + 6;
       para(g, why.join(' ') || 'A quiet day.', 36, y, 16, W - 70, C.ink);

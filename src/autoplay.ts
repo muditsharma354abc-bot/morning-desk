@@ -93,10 +93,10 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
     const p: V3 = [0.06, 1.42, -0.32];
     await move(p, 900);
     R.poseId = 'thumbs-up'; pin(R, p, rot);
-    await sleep(500);
+    await sleep(700); // pose visible before the detector fires
     const before = snap();
     await until(() => snap() !== before, 4000);
-    await sleep(1400); // keep the gesture on screen after it registers
+    await sleep(1500); // hold the thumbs pose ~1.5 s after it registers
     R.poseId = 'default'; pin(R, p);
   };
   const tap = async () => { await pinch(1, 120); await sleep(120); await pinch(0, 120); };
@@ -142,7 +142,7 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
 
     say('7/7  poke "Done": day summary + streak');
     await press('Done'); await sleep(1500);
-    await move([0.22, 1.05, -0.2], 1000);
+    await move([0.36, 0.95, -0.25], 1000);
     await sleep(4500); // streak bar animates up
     say(`demo complete · ${sys.s.streak}-day streak`);
   } catch (e) {

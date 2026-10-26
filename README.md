@@ -16,7 +16,7 @@ Built for the Start Developer Competition (Productivity track, New Experience di
 
 On a Quest 3, open the live app in the Meta Quest Browser and press **Enter XR**. On a desktop browser the built-in emulator runs it, no headset or extension needed.
 
-![Morning Desk layout: meetings on the left, timeline ahead, pending tasks on the right, must-dos on the desk](docs/screenshots/01-spatial-layout.png)
+![Morning Desk layout: meetings on the left, timeline ahead, pending tasks on the right clear of the hand marker, must-dos on the desk](docs/screenshots/01-spatial-layout-final.png)
 
 ## Plan, Focus, Adapt, Measure
 
@@ -73,7 +73,7 @@ Press **✓ Done** on the desk to close the day. Your streak goes up (if you als
 
 It ends with a short rule-based note on why the day went that way and one suggestion for tomorrow.
 
-![Day so far summary with measured numbers and a suggestion for tomorrow](docs/screenshots/04-day-summary.png)
+![Day so far summary: 1 of 6 scheduled done, 24m focus, 6m saved (planned 30m vs actual 24m), 1 meeting clash fixed](docs/screenshots/04-day-summary-final.png)
 
 ## Hands-only interactions
 
@@ -94,9 +94,12 @@ The **hands tutorial** starts on your first visit and moves on only when you act
 
 The autoplay demo selects the emulator's hands mode by itself. To pinch by hand on a desktop instead, outside the emulator's play mode:
 
-1. Open the [demo state](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1) in a desktop browser and press **Enter XR**.
-2. In the emulator toolbar at the top, switch the input to **Hands** mode.
-3. Use the emulator's **Pinch** latch to hold a pinch on a hand, move that hand to drag a card, then release the latch to drop it.
+1. Open [?demo=1](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1) and click **Enter MR**.
+2. In the emulator toolbar, **Select input mode**, then **Hands**; both panels should say hand.
+3. Drag the right hand's arrows onto a card.
+4. Click the **Pinch** latch (pin icon) in the right hand panel to grab it.
+5. Drag the hand to the timeline.
+6. Click the latch again to drop it.
 
 ## What's tested and what isn't
 

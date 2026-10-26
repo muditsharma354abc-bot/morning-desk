@@ -675,6 +675,8 @@ export class MorningDeskSystem extends createSystem({
   private tutEvent(ev: string): void {
     if (this.tutStep < 0 || MorningDeskSystem.TUT[this.tutStep].on !== ev) return;
     this.tutStep++; sfx.yes(); document.body.dataset.tutStep = String(this.tutStep); // test/automation hook, not rendered
+    // tutorial-only: after step 4 (focus tap) close Focus after a short beat so it doesn't cover "Plan for me" in step 5
+    if (ev === 'detail') setTimeout(() => { if (this.tutStep >= 0 && this.focus) this.endFocus(false); }, 800);
     if (this.tutStep >= MorningDeskSystem.TUT.length) {
       this.tutorial.draw((g, W, H) => { panel(g, W, H, C.sageDeep, undefined, 1); text(g, '🌿 You\'re ready. Plan your morning!', W / 2, H / 2, 24, '#fff', 600, W - 30, 'center'); });
       setTimeout(() => this.endTutorial(), 2500); this.tutStep = 99; return;

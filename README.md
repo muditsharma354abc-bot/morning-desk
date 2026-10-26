@@ -1,45 +1,19 @@
-# IWSDK App
+# Morning Desk
 
-This project uses `iwsdk.config.json` for declarative scene, asset, component,
-XR, and emulator configuration. Application systems remain explicit in
-`src/index.ts`.
+A 5-minute mixed-reality morning planning ritual for Meta Quest 3, built with WebXR and IWSDK (`@iwsdk/core`).
 
-```sh
+**Live:** https://muditsharma354abc-bot.github.io/morning-desk/ (add `?demo=1` for the demo state)
+
+- Passthrough AR. A desk of task cards sits within seated reach. The wall timeline pins to a detected wall (plane detection + anchor). With no wall, it is placed 1.2 m ahead at eye height, and the header says so.
+- Hands first: pinch-grab a card, aim it at the timeline and let go to schedule it. Flick it sideways to skip it. A quick pinch opens its details.
+- Planner agent (rule-based, pluggable `Planner` interface): splits blocks over 90 min and detects overload (scheduled > available), then moves the lowest-priority block to tomorrow. Each change animates and can be kept (👍) or undone (👎).
+- Daily streak with a desk plant that grows, a 30-second hands tutorial, and soft pentatonic sounds.
+- Runs on desktop through the built-in IWER emulator (no extension needed). In the flat view, the mouse drags cards and clicks buttons.
+
+```bash
 npm install
-npm run dev
+npm run dev          # managed IWSDK dev server + emulator
+npm run build        # dist/ with base /morning-desk/ (override: VITE_BASE=./)
 ```
 
-Use the Runtime and Editor controls in the managed browser to switch between
-the running experience and its authored scene.
-
-## Starter content
-
-The robot and welcome panel are small examples of authored scene content plus
-runtime systems. The robot turns toward the player's head and plays a sound
-when pressed. To remove the robot, delete its scene node, its `RobotSystem`
-registration from `src/index.ts` or `src/index.js`, and its `Robot` registration
-from `src/components.ts` or `src/components.js`; you can then delete the unused
-robot component and system files. To remove the welcome panel, delete its scene
-node and its `PanelSystem` registration from the application entry point.
-
-The robot stands on the second of three numbered stations. The first holds dark
-pieces you can grab and move, and the third holds a ring you can spin in place.
-The studio props (the plinths and the dark pieces, plus the floor and stage in VR
-and Desktop 3D) are built in code in `src/scene-assets/studio.scene-asset.ts` or
-`.js`. The VR and Desktop 3D background furniture is built the same way in
-`src/scene-assets/decor.scene-asset.ts` or `.js`, so the starter downloads no
-extra models. To remove any of them, delete their scene nodes and their entries
-in `src/assets.ts` or `src/assets.js`, then delete the files you no longer use.
-The station labels are `public/ui/label-*.uikitml`.
-
-The rest of the look is built-in components in the scene, which you can edit in
-the editor without code. The soft light on every object is the scene root's
-`IBLGradient` (select the Level Root to edit it), and the soft shadows under
-each object are `ContactShadow` nodes. In VR and Desktop 3D, the sky is the
-scene root's `DomeGradient` (its colors, tilt and dither are also on the Level
-Root), and the floor fades into it through the `DomeFade` on the floor node. AR
-projects have no sky or floor, so passthrough stays visible, and a
-`ShadowCatcher` node grounds the stations.
-
-- Minimal scene walkthrough: https://iwsdk.dev/guides/01b-minimal-scene.html
-- XR-enabled projects — IWER emulator controls: https://iwsdk.dev/guides/02-testing-experience.html#iwer-controls
+MIT © 2026 Shubham Sharma

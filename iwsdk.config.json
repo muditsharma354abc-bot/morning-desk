@@ -10,49 +10,56 @@
   },
   "world": {
     "xr": {
-      "mode": "vr",
+      "mode": "ar",
       "offer": "always",
       "features": {
-        "handTracking": true
+        "handTracking": true,
+        "anchors": {
+          "required": false
+        },
+        "planeDetection": {
+          "required": false
+        },
+        "hitTest": {
+          "required": false
+        }
       }
     },
     "input": {
       "canvasPointerEvents": true
     },
     "render": {
-      "fov": 70,
-      "near": 0.001,
-      "far": 200,
+      "fov": 60,
+      "near": 0.01,
+      "far": 50,
       "camera": {
         "position": [
           0,
-          1.6,
-          1
+          1.55,
+          0.55
         ],
         "lookAt": [
           0,
-          0.95,
-          -1.95
+          1.15,
+          -0.75
         ]
       }
     },
     "features": {
-      "locomotion": {
-        "useWorker": true
-      },
+      "locomotion": false,
       "grabbing": true,
       "physics": false,
-      "sceneUnderstanding": false,
-      "environmentRaycast": false,
-      "spatialUI": {
-        "kit": "horizon",
-        "preferredColorScheme": "dark"
-      }
+      "sceneUnderstanding": true,
+      "environmentRaycast": false
     }
   },
   "dev": {
     "emulator": {
-      "device": "metaQuest3"
+      "device": "metaQuest3",
+      "iwer": true,
+      "activation": "always",
+      "injectOnBuild": true,
+      "environment": "home_office"
     }
   }
 }

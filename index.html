@@ -1,16 +1,28 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, shrink-to-fit=no"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
     <link rel="icon" href="data:," />
-    <title>iwsdk-test</title>
+    <title>Morning Desk</title>
+    <style>
+      html,body{margin:0;height:100%;background:#1d2228;font-family:system-ui,sans-serif;overflow:hidden}
+      #scene-container{position:fixed;inset:0}
+      #hud{position:fixed;top:16px;left:16px;display:flex;gap:8px;z-index:10}
+      #hud button{background:#2d3a40cc;color:#eef3ee;border:1px solid #8fb39a;border-radius:18px;padding:8px 16px;font-size:15px;cursor:pointer}
+      #hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:#dfe9e0;background:#0008;padding:8px 14px;border-radius:12px;font-size:14px;z-index:10}
+    </style>
   </head>
-  <body style="margin: 0">
+  <body>
     <div id="scene-container"></div>
+    <div id="hud">
+      <button id="btn-enter">Enter MR</button>
+      <button id="btn-plan">Run planner</button>
+      <button id="btn-done">Done ✓</button>
+      <button id="btn-tutorial">Tutorial</button>
+      <button id="btn-demo">Demo reset</button>
+    </div>
+    <div id="hint">Drag a card toward the wall timeline · click a card for details · flick sideways to skip · ?demo=1 for the demo</div>
     <script type="module" src="/src/index.ts"></script>
   </body>
 </html>

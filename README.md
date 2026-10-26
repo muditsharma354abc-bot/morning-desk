@@ -113,6 +113,8 @@ In XR the app uses plane detection to find a vertical wall in front of you withi
 
 If no suitable wall is found (or the browser has no plane detection), the timeline is placed **1.1 m in front of you at eye height**, and the header says it's using the fallback.
 
+Everything stays close: task cards sit on a virtual desk about 0.4 m ahead and 0.26 m below eye level, the Focus and summary panels open about 0.6 m in front of you and a task's detail card about 0.7 m, and the timeline only snaps to a real wall 0.5–1.7 m away (otherwise the 1.1 m fallback). Input is WebXR hand tracking: pinch, fingertip poke, sideways flick and thumbs-up / thumbs-down.
+
 ## Run it locally
 
 You need Node.js 20.19+, 22.12+ or 24+.

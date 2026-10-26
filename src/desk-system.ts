@@ -77,8 +77,8 @@ export class MorningDeskSystem extends createSystem({
     tray.mesh.rotation.x = -Math.PI / 2; tray.mesh.position.set(0, -0.005, 0);
     this.desk.add(tray.mesh);
     this.buildPlant();
-    this.streakLabel = new Label(0.17, 0.035);
-    this.streakLabel.mesh.position.set(0.24, 0.215, -0.02); this.desk.add(this.streakLabel.mesh);
+    this.streakLabel = new Label(0.2, 0.034);
+    this.streakLabel.mesh.position.set(0.25, 0.012, 0.115); this.streakLabel.mesh.rotation.x = -1.0; // tag lying in front of the pot this.desk.add(this.streakLabel.mesh);
 
     // Wall: header + track + agent panel.
     this.header = new Label(TRACK_W + 0.2, 0.09);
@@ -394,7 +394,7 @@ export class MorningDeskSystem extends createSystem({
   private buildPlant(): void {
     const pot = new Mesh(new CylinderGeometry(0.03, 0.022, 0.045, 20), new MeshStandardMaterial({ color: C.clay, roughness: 0.9 }));
     pot.position.y = 0.0225; this.plant.add(pot);
-    this.plant.position.set(0.24, 0, 0.02); this.desk.add(this.plant);
+    this.plant.position.set(0.25, 0, 0.0); this.desk.add(this.plant);
   }
   /** Plant growth stages: 0 seed · 1-2 sprout · 3-5 leafy · 6-9 bud · 10+ flower. */
   private growPlant(): void {
@@ -428,7 +428,7 @@ export class MorningDeskSystem extends createSystem({
     }
     this.plantGrow = 0;
     const stage = n === 0 ? 'seed' : n <= 2 ? 'sprout' : n <= 5 ? 'leafy' : n <= 9 ? 'budding' : 'in bloom';
-    this.streakLabel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, `🌱 ${this.s.streak}-day streak · ${stage}`, W / 2, H / 2, 16, C.sageDeep, 600, W - 10, 'center'); });
+    this.streakLabel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, `🌱 ${this.s.streak}-day streak · ${stage}`, W / 2, H / 2, 15, C.sageDeep, 600, W - 10, 'center'); });
   }
   private finishDay(): void {
     completeDay(this.s); save(this.s); this.growPlant(); sfx.done();

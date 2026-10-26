@@ -617,7 +617,7 @@ export class MorningDeskSystem extends createSystem({
     const planned = measured.reduce((a, id) => a + s.tasks[id].minutes, 0), actual = measured.reduce((a, id) => a + (s.tasks[id].actual ?? 0), 0);
     const ms = s.meetings ?? []; const post = s.tomorrow.map((id) => s.tasks[id]?.title).filter(Boolean);
     const lines: [string, string][] = [
-      ['Tasks', `${doneN} of ${today.length} scheduled done${unsched ? ` · ${unsched} not scheduled` : ''}`],
+      ['Tasks', IS_DEMO ? `${doneN} of ${today.length} done` : `${doneN} of ${today.length} scheduled done${unsched ? ` · ${unsched} not scheduled` : ''}`],
       ['Focus time', dur(s.focusMinutes ?? 0)],
       ['Meetings', ms.length ? `${ms.length} · ${dur(ms.reduce((a, m) => a + m.minutes, 0))}` : 'none'],
       ['Postponed', post.length ? post.join(', ') : 'none'],

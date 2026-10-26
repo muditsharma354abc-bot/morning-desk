@@ -353,7 +353,7 @@ export class MorningDeskSystem extends createSystem({
   }
   private release(id: string, p: Vector3, lateralSpeed: number, moved: number, held: number): void {
     this.marker.visible = false;
-    if (moved < (this.inXR() ? 0.04 : 0.025) && held < (this.inXR() ? 2.5 : 0.5)) { this.openDetail(this.detailId === id ? '' : id); if (this.detailId) this.tutEvent('detail'); return; }
+    if (moved < (this.inXR() ? 0.04 : 0.025) && held < (this.inXR() ? 4 : 0.5)) { this.openDetail(this.detailId === id ? '' : id); if (this.detailId) this.tutEvent('detail'); return; }
     const idx = this.wallSlot(p);
     const s = this.s;
     const strip = (arr: string[]) => arr.filter((x) => x !== id);

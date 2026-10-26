@@ -60,65 +60,89 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
     const w = sys.wall.localToWorld(new Vector3(x, 0, 0));
     return head.clone().addScaledVector(w.sub(head).normalize(), 0.45).toArray() as V3;
   };
-  /** Poke a button with the index fingertip (real PokeInteractable path). */
+  /** Time-based tween: same duration even if the tab's timers/frames are throttled. */
+  const tween = async (ms: number, fn: (k: number) => void) => {
+    const t0 = performance.now();
+    for (;;) { const t = Math.min(1, (performance.now() - t0) / ms); fn(ease(t)); if (t >= 1) return; await sleep(16); }
+  };
+  const until = async (cond: () => boolean, ms: number) => { const t0 = performance.now(); while (!cond() && performance.now() - t0 < ms) await sleep(30); return cond(); };
+  const lerp3 = (a: V3, b: V3, k: number) => [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * k) as V3;
+  const snap = () => JSON.stringify([sys.pending?.summary ?? '', sys.s.streak, sys.agentMsg]);
+
+  /** Poke a button with the index fingertip (real PokeInteractable path). Retries the poke once if nothing happened. */
   const press = async (name: string) => {
     const b = button(name); if (!b) return;
     const p = posOf(b.label.mesh);
     const n = new Vector3(0, 0, 1).applyQuaternion(b.label.mesh.getWorldQuaternion(new (b.label.mesh.quaternion.constructor)())).toArray() as V3;
     const off = (d: number): V3 => [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d];
-    R.poseId = 'point';
     const tip = (q: V3) => R.setPin({ anchor: 'index-tip', target: q });
-    const from = cur; const via = off(0.08);
-    for (let i = 1; i <= 50; i++) { const k = ease(i / 50); tip([0, 1, 2].map((j) => from[j] + (via[j] - from[j]) * k) as V3); await sleep(20); }
-    for (let i = 1; i <= 15; i++) { const d = 0.08 - (0.095 * i) / 15; tip(off(d)); await sleep(25); } // push 1.5 cm through
-    await sleep(200);
-    for (let i = 1; i <= 15; i++) { tip(off(-0.015 + (0.1 * i) / 15)); await sleep(20); }
-    cur = off(0.085); R.poseId = 'default'; pin(R, cur);
+    R.poseId = 'point';
+    const from = cur, before = snap();
+    await tween(900, (k) => tip(lerp3(from, off(0.07), k)));
+    for (let attempt = 0; attempt < 2 && snap() === before; attempt++) {
+      await tween(260, (k) => tip(off(0.07 - 0.09 * k)));   // push ~2 cm through the face
+      await until(() => snap() !== before, 500);
+      await tween(220, (k) => tip(off(-0.02 + 0.09 * k)));  // lift off
+    }
+    cur = off(0.08); R.poseId = 'default'; pin(R, cur);
   };
+  /** Hold a clearly visible thumbs-up / thumbs-down in front of the face; the app's own detector decides. */
   const thumbs = async (up: boolean) => {
-    const s2 = Math.SQRT1_2;
-    R.poseId = 'thumbs-up';
-    const p: V3 = [0.1, 1.38, -0.33];
-    await move(p, 800);
-    pin(R, p, up ? [0, 0, -s2, s2] : [0, 0, s2, s2]);
-    for (let i = 0; i < 40 && sys.pending; i++) await sleep(50); // the app's own gesture detector decides
-    await sleep(600); R.poseId = 'default'; pin(R, p);
+    const s2 = Math.SQRT1_2, rot = up ? [0, 0, -s2, s2] : [0, 0, s2, s2];
+    const p: V3 = [0.06, 1.42, -0.32];
+    await move(p, 900);
+    R.poseId = 'thumbs-up'; pin(R, p, rot);
+    await sleep(500);
+    const before = snap();
+    await until(() => snap() !== before, 4000);
+    await sleep(1400); // keep the gesture on screen after it registers
+    R.poseId = 'default'; pin(R, p);
   };
+  const tap = async () => { await pinch(1, 120); await sleep(120); await pinch(0, 120); };
 
-  // ---- the pass (~75 s)
-  say('1/7  pinch a card, drop it on the timeline');
-  await move([0.2, 1.3, -0.3], 1200);
-  const c1 = card('inbox'); await move([c1[0], c1[1] + 0.06, c1[2] + 0.04], 1300); await move(c1, 500);
-  await pinch(1); await sleep(300);
-  await move([c1[0], c1[1] + 0.1, c1[2] - 0.02], 700);
-  await move(aimAt(0.4), 1800); await sleep(400); await pinch(0); await sleep(1800);
+  try {
+    // ---- the pass (~75 s); every caption is set before its action
+    say('1/7  pinch a card, drop it on the timeline');
+    await move([0.2, 1.3, -0.3], 1000);
+    const c1 = card('inbox'); await move([c1[0], c1[1] + 0.06, c1[2] + 0.04], 1200); await move(c1, 450);
+    await pinch(1); await sleep(300);
+    await move([c1[0], c1[1] + 0.1, c1[2] - 0.02], 600);
+    await move(aimAt(0.4), 1700); await sleep(300); await pinch(0);
+    await until(() => !sys.drag, 3000); await sleep(1500);
 
-  say('2/7  quick pinch opens details');
-  const c2 = card('plants'); await move([c2[0], c2[1] + 0.06, c2[2] + 0.05], 1300); await move(c2, 500);
-  await pinch(1, 120); await sleep(120); await pinch(0, 120);
-  for (let i = 0; i < 30 && !sys.detailId; i++) await sleep(100);
-  await sleep(3000);
-  await pinch(1, 120); await sleep(120); await pinch(0, 120); await sleep(600); // tap again closes it
-  await move([c2[0], c2[1] + 0.08, c2[2] + 0.06], 500);
+    say('2/7  quick pinch opens the details card');
+    const c2 = card('plants'); await move([c2[0], c2[1] + 0.06, c2[2] + 0.05], 1200); await move(c2, 450);
+    await tap();
+    await until(() => !!sys.detailId, 3000);
+    await move([c2[0] + 0.05, c2[1] + 0.12, c2[2] + 0.12], 600); // move the hand aside so the card is visible
+    await sleep(2200);
+    say('2/7  quick pinch again closes it');
+    await move(card('plants'), 600); await tap(); await until(() => !sys.detailId, 3000);
+    await move([c2[0], c2[1] + 0.08, c2[2] + 0.06], 450);
 
-  say('3/7  flick a card sideways to skip it');
-  const c3 = card('call'); await move([c3[0], c3[1] + 0.06, c3[2] + 0.05], 1100); await move(c3, 450);
-  await pinch(1); await sleep(250);
-  await move([c3[0] + 0.42, c3[1] + 0.03, c3[2]], 100); await pinch(0, 60); await sleep(1500);
+    say('3/7  flick a card sideways to skip it');
+    const c3 = card('call'); await move([c3[0], c3[1] + 0.06, c3[2] + 0.05], 1000); await move(c3, 400);
+    await pinch(1); await sleep(250);
+    await move([c3[0] + 0.42, c3[1] + 0.03, c3[2]], 100); await pinch(0, 60);
+    await until(() => !sys.drag, 3000); await sleep(1300);
 
-  say('4/7  ask the planner');
-  await press('Plan'); await sleep(3500);
+    say('4/7  poke "Plan for me"');
+    await press('Plan'); await sleep(2500);
 
-  say('5/7  👍 thumbs up keeps the split');
-  await thumbs(true); await sleep(3500);
+    say('5/7  👍 thumbs up keeps the split');
+    await thumbs(true); await sleep(1500);
 
-  say('6/7  👎 thumbs down undoes the next change');
-  if (sys.pending) await thumbs(false); await sleep(3000);
+    say('6/7  👎 thumbs down undoes the next change');
+    if (sys.pending) await thumbs(false);
+    await sleep(1500);
 
-  say('7/7  done for today: streak +1, the plant grows');
-  await press('Done'); await sleep(4000);
-  await move([0.22, 1.1, -0.25], 1200);
-  say('demo complete');
+    say('7/7  poke "Done": streak +1, the plant grows');
+    await press('Done'); await sleep(3500);
+    await move([0.22, 1.1, -0.25], 1000);
+    say(`demo complete · ${sys.s.streak}-day streak`);
+  } catch (e) {
+    say(`autoplay stopped: ${(e as Error).message}`);
+  }
 }
 
 function caption(): HTMLDivElement {

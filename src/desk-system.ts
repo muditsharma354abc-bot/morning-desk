@@ -155,6 +155,8 @@ export class MorningDeskSystem extends createSystem({
     this.dim = new Mesh(new SphereGeometry(2.5, 24, 16), new MeshBasicMaterial({ color: '#0b0f0d', transparent: true, opacity: 0, side: BackSide, depthWrite: false }));
     this.dim.renderOrder = -1; this.dim.visible = false; scene.add(this.dim);
     this.summary = new Label(0.54, 0.4); this.summary.mesh.visible = false;
+    // draw the summary over desk labels behind it (the streak tag must not show through)
+    (this.summary.mesh.material as MeshBasicMaterial).depthTest = false; this.summary.mesh.renderOrder = 10;
     const se = this.world.createTransformEntity(this.summary.mesh, this.deskE); se.addComponent(RayInteractable);
     this.buttons.set(se.index, { label: this.summary, entity: se, action: () => { this.summary.mesh.visible = false; } });
 
@@ -237,7 +239,7 @@ export class MorningDeskSystem extends createSystem({
       const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
       g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
     };
-    side(this.left, 40, 0.95, -0.04); side(this.right, -42, 0.85, -0.12);
+    side(this.left, 40, 0.95, -0.04); side(this.right, -50, 0.85, -0.02);
     for (const pe of this.queries.planes.entities) this.tryWall(pe);
     this.placed = true; this.redrawHeader();
   }
@@ -629,7 +631,7 @@ export class MorningDeskSystem extends createSystem({
       const y = 82 + lines.length * 30 + 6;
       para(g, why.join(' ') || 'A quiet day.', 36, y, 16, W - 70, C.ink);
       text(g, `Tomorrow: ${tip}`, 36, H - 46, 17, C.sageDeep, 700, W - 60);
-      text(g, 'tap to close', W - 24, H - 18, 13, C.mute, 400, W, 'right');
+      text(g, 'tap to close', W - 24, 36, 13, C.mute, 400, W, 'right');
     });
   }
   // Tutorial advances only when the user actually performs each gesture.

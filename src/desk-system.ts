@@ -6,7 +6,7 @@ import {
 import { Label, panel, para, text } from './label.js';
 import { PlanChange, RulePlanner } from './planner.js';
 import { C, sfx, unlockAudio } from './style.js';
-import { clearStorage, clone, completeDay, demoState, dur, fmt, IS_DEMO, layout, load, PlanState, save, scheduledMinutes } from './state.js';
+import { clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, layout, load, PlanState, save, scheduledMinutes } from './state.js';
 import { BackSide, MeshBasicMaterial } from '@iwsdk/core';
 /** Demo days run the focus timer accelerated (and say so on the panel). */
 const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
@@ -85,7 +85,7 @@ export class MorningDeskSystem extends createSystem({
 
   init(): void {
     // ?tutorial=1: fresh start: wipe saved desk/card/wall state, then the sample desk loads (never in demo)
-    { const tq = new URLSearchParams(location.search); if (tq.has('tutorial') && !tq.has('demo')) clearStorage(); }
+    { const tq = new URLSearchParams(location.search); if (tq.has('tutorial') && !tq.has('demo')) { clearStorage(); save(tutorialState()); } }
     this.s = load();
     if (import.meta.env.DEV) (window as unknown as { __mdTest: unknown }).__mdTest = this; // dev-server test hook only
     const scene = this.world.scene;
@@ -200,7 +200,7 @@ export class MorningDeskSystem extends createSystem({
       // (input mode left to the IWER toolbar: setting it from code desynced the devui corner panels)
       // ?hands=1: same switch autoplay uses (clicks the IWER toolbar → Hands), once per session; autoplay does its own
       const hq = new URLSearchParams(location.search);
-      if (iwer && this.inXR() && hq.has('hands') && !hq.has('autoplay')) this.handsOn();
+      if (iwer && this.inXR() && hq.has('hands') && !hq.has('autoplay')) { iwer.primaryInputMode = 'hand'; this.handsOn(); }
       for (const id of ['hud', 'hint']) { const el = document.getElementById(id); if (el) el.style.display = this.inXR() ? 'none' : ''; }
     }));
     this.hookDom();
@@ -399,7 +399,7 @@ export class MorningDeskSystem extends createSystem({
 
   // ---------------------------------------------------------------- drop logic (shared by hands + mouse)
   /** Where would a card released at world point p land on the wall? (head→card ray, so seated users can "aim" it). */
-  private wallSlot(p: Vector3): number | null {
+  private wallSlot(p: Vector3, strict = false): number | null {
     const cam = this.headCam(); const head = this.tmp.setFromMatrixPosition(cam.matrixWorld);
     const n = new Vector3(0, 0, 1).applyQuaternion(this.wall.quaternion);
     const dir = p.clone().sub(head).normalize();
@@ -407,6 +407,7 @@ export class MorningDeskSystem extends createSystem({
     const t = n.dot(this.wall.position.clone().sub(head)) / denom; if (t <= 0) return null;
     const hit = this.wall.worldToLocal(head.clone().addScaledVector(dir, t));
     if (Math.abs(hit.y) > 0.16 || hit.x < -TRACK_W / 2 - 0.1 || hit.x > TRACK_W / 2 + 0.25) return null;
+    if (strict && (Math.abs(hit.y) > 0.1 || Math.abs(hit.x) > TRACK_W / 2)) return null; // on the track itself, not its margin
     // insertion index by comparing to block centres (excluding the dragged one)
     const list = this.s.timeline.filter((x) => x !== this.drag?.id && x !== this.mouseDrag?.id);
     const sl = layout(this.s).slots; let idx = list.length;
@@ -835,11 +836,12 @@ export class MorningDeskSystem extends createSystem({
     if (this.handsSet) return; this.handsSet = true;
     const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE; if (!iwer) return;
     void import('./autoplay.js').then(async (m) => {
-      for (let i = 0; i < 3; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
+      // the emulator can flip back to controllers while the session settles: keep re-applying for ~6 s
+      let synced = false;
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, i ? 300 : 150));
         if (!this.inXR()) { this.handsSet = false; return; }
-        await m.selectHandsInToolbar(); iwer.primaryInputMode = 'hand';
-        if (iwer.primaryInputMode === 'hand') break;
+        if (!synced || iwer.primaryInputMode !== 'hand') { await m.selectHandsInToolbar(); iwer.primaryInputMode = 'hand'; synced = true; }
       }
     });
   }
@@ -850,13 +852,22 @@ export class MorningDeskSystem extends createSystem({
     // flick: >=60 px mostly-horizontal within the last 300 ms at >=500 px/s
     const w0 = md.px.find((q) => now - q.t <= 300) ?? md.px[0];
     const dx = e.clientX - w0.x, dy = e.clientY - w0.y, dt = Math.max(0.016, (now - w0.t) / 1000);
-    const flick = Math.abs(dx) >= 60 && Math.abs(dx) > 1.5 * Math.abs(dy) && Math.abs(dx) / dt >= 500;
+    const fast = Math.abs(dx) >= 60 && Math.abs(dx) > 1.5 * Math.abs(dy) && Math.abs(dx) / dt >= 500;
+    // loose flick (any speed): whole drag ends >120 px mostly sideways, or >=15 cm sideways in world, and not on the timeline
+    const tx = e.clientX - md.px[0].x, ty = e.clientY - md.px[0].y;
+    const endP = this.items.get(md.id)?.label.mesh.position;
+    const side = new Vector3(1, 0, 0).applyQuaternion(this.desk.quaternion);
+    const worldSide = endP ? Math.abs(endP.clone().sub(d.p0).dot(side)) : 0;
+    const offTimeline = !endP || this.wallSlot(endP, true) === null;
+    const loose = offTimeline && Math.abs(tx) > 1.5 * Math.abs(ty) && (Math.abs(tx) > 120 || worldSide >= 0.15);
+    const flick = fast || loose;
+    const dxs = loose && !fast ? tx : dx;
     if (!flick && md.maxPx < 6) { this.endDrag(); return; } // plain click/tap: unchanged (opens Focus)
     this.drag = null;
     const it = this.items.get(d.id); if (!it) return;
     const p = it.label.mesh.position.clone();
     // moved >= click threshold so a real drag never opens Focus; a flick skips like the XR flick
-    this.release(d.id, p, flick ? Math.sign(dx) * (SWIPE_SPEED + 1) : 0, Math.max(0.1, p.distanceTo(d.p0)), (now - d.t0) / 1000, flick);
+    this.release(d.id, p, flick ? Math.sign(dxs) * (SWIPE_SPEED + 1) : 0, Math.max(0.1, p.distanceTo(d.p0)), (now - d.t0) / 1000, flick);
   }
   private endDrag(): void {
     const d = this.drag; if (!d) return; this.drag = null;

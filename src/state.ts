@@ -50,6 +50,14 @@ export function sampleState(): PlanState {
   };
 }
 
+/** ?tutorial=1 only: the sample desk plus one 10:00 meeting that the scheduled design review runs into, so step 5 has a fix to Keep. */
+export function tutorialState(): PlanState {
+  const s = sampleState();
+  s.timeline = ['standup', 'review']; s.stack = s.stack.filter((id) => !s.timeline.includes(id));
+  s.meetings = [{ id: 'm-sync', title: 'Team sync', start: 10 * 60, minutes: 30 }];
+  return s;
+}
+
 /** Fixed demo state: a 14:00 meeting and a 90-min deep-work block with only 60 min free before it. */
 export function demoState(): PlanState {
   const tasks = [

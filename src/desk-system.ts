@@ -1,5 +1,5 @@
 import {
-  Color, createSystem, CylinderGeometry, Entity, Grabbed, Group, HemisphereLight, Mesh, MeshStandardMaterial,
+  Color, createSystem, Matrix4, CylinderGeometry, Entity, Grabbed, Group, HemisphereLight, Mesh, MeshStandardMaterial,
   Hovered, OneHandGrabbable, PokeInteractable, Pressed, Quaternion, RayInteractable, SphereGeometry, Vector2, Vector3,
   VisibilityState, XRAnchor, XRPlane,
 } from '@iwsdk/core';
@@ -443,8 +443,23 @@ export class MorningDeskSystem extends createSystem({
     completeDay(this.s); save(this.s); this.growPlant(); sfx.done();
     this.agentMsg = `Ritual done. ${this.s.streak}-day streak, your plant grew. See you tomorrow.`; this.redrawAgent();
   }
+  /** Spawn a panel in front of the viewer's current head pose: `dist` ahead (level gaze), `drop` below eye height, facing the head. */
+  private placeInView(m: Mesh, dist: number, drop: number): void {
+    const cam = this.headCam(); cam.updateMatrixWorld();
+    const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new Quaternion()));
+    // clamp pitch so the panel stays inside the FoV even if the head looks steeply up/down
+    fwd.y = Math.max(-0.35, Math.min(0.2, fwd.y)); fwd.normalize();
+    const world = head.clone().addScaledVector(fwd, dist); world.y += drop;
+    const parent = m.parent!; parent.updateMatrixWorld();
+    m.position.copy(parent.worldToLocal(world.clone()));
+    // face the head: world rotation = lookAt(head); local = parent^-1 * world
+    const look = new Quaternion().setFromRotationMatrix(new Matrix4().lookAt(head, world, new Vector3(0, 1, 0)));
+    m.quaternion.copy(parent.getWorldQuaternion(new Quaternion()).invert().multiply(look));
+  }
   private openDetail(id: string): void {
     this.detailId = id; if (!id) return; this.detail.mesh.visible = true; this.detail.mesh.scale.setScalar(0.85);
+    this.placeInView(this.detail.mesh, 0.7, -0.12);
     const t = this.s.tasks[id]; sfx.pick();
     const place = this.placeOf(id);
     this.detail.draw((g, W, H) => {

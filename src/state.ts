@@ -54,9 +54,9 @@ export function sampleState(): PlanState {
 export function demoState(): PlanState {
   const tasks = [
     t('standup', 'Team standup', 15, 1, 'Share yesterday, today, blockers.'),
-    t('review', 'Design review', 60, 1, 'Walk through the new onboarding screens.'),
+    t('review', 'Design review', 45, 1, 'Walk through the new onboarding screens.'),
     t('inbox', 'Inbox sweep', 30, 2, 'Archive, reply to the 3 flagged mails.'),
-    t('call', 'Call the electrician', 15, 2, 'Ask about the kitchen socket.'),
+    t('call', 'Call the electrician', 30, 2, 'Ask about the kitchen socket.'),
     t('deep', 'Deep work: quarterly report', 90, 1, 'The big one. Charts + summary.'),
     t('gym', 'Gym session', 60, 2, 'Legs day. Bring water.'),
     t('blog', 'Write blog draft', 45, 3, 'Outline + first 500 words.'),

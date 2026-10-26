@@ -102,35 +102,48 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
   const tap = async () => { await pinch(1, 120); await sleep(120); await pinch(0, 120); };
 
   /** Reach to a block and quick-pinch it (near tap: the app's real grab -> release-as-tap path). */
-  const rayTap = async (target: V3) => {
-    await move([target[0], target[1] + 0.05, target[2] + 0.12], 1500); await move(target, 500); await sleep(200); await tap();
+  const rayTap = async (target: V3, id?: string) => {
+    await move([target[0], target[1] + 0.05, target[2] + 0.12], 1500);
+    const t2 = id ? card(id) : target; // re-aim: blocks may have slid after a reschedule
+    await move(t2, 500); await sleep(250); await tap();
   };
   try {
     // ---- the pass (~60 s); every caption is set before its action
-    say('1/6  your day in space: desk, timeline, a 14:00 meeting');
+    say('1/7  your day in space: desk, timeline, a 14:00 meeting');
     await move([0.2, 1.3, -0.3], 1000);
     const deep = card('deep'); await move([deep[0] * 0.4, deep[1] - 0.05, -0.4], 1500); await sleep(2500);
 
-    say('2/6  pinch "Inbox sweep" to enter Focus Mode');
+    say('2/7  pinch "Inbox sweep" to enter Focus Mode');
     await rayTap(card('inbox'));
     await until(() => !!sys.focus, 3000);
     await move([0.22, 1.12, -0.3], 900);
 
-    say('3/6  25-min focus timer (accelerated in the demo) · others fade');
+    say('3/7  25-min focus timer (accelerated in the demo) · others fade');
     await sleep(3500);
 
-    say('4/6  👍 done early: the planner reschedules the day');
+    say('4/7  👍 done early: the planner reschedules the day');
     await thumbs(true);
     await until(() => !!sys.pending, 4000); await sleep(2500);
 
-    say('5/6  conflict: 90m deep work vs 14:00 meeting · 👍 approve the fix');
+    say('5/7  conflict: 90m deep work vs 14:00 meeting · 👍 approve the fix');
     if (sys.pending) await thumbs(true);
     await sleep(2500);
 
-    say('6/6  poke "Done": end-of-day summary');
+    say('6/7  pinch + 👍 to finish three more blocks');
+    for (const id of ['review', 'call', 'gym']) {
+      if (!sys.items.get(id) || sys.s.tasks[id]?.done) continue;
+      await rayTap(card(id), id);
+      if (!(await until(() => !!sys.focus, 3000))) continue;
+      await move([0.22, 1.12, -0.3], 700); await sleep(1200);
+      await thumbs(true);
+      await until(() => !sys.focus, 3000); await sleep(800);
+    }
+    if (sys.pending) { await thumbs(true); await sleep(800); }
+
+    say('7/7  poke "Done": day summary + streak');
     await press('Done'); await sleep(1500);
     await move([0.22, 1.05, -0.2], 1000);
-    await sleep(3000);
+    await sleep(4500); // streak bar animates up
     say(`demo complete · ${sys.s.streak}-day streak`);
   } catch (e) {
     say(`autoplay stopped: ${(e as Error).message}`);

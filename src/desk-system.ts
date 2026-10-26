@@ -10,6 +10,8 @@ import { clearStorage, clone, completeDay, demoState, dur, fmt, IS_DEMO, layout,
 import { BackSide, MeshBasicMaterial } from '@iwsdk/core';
 /** Demo days run the focus timer accelerated (and say so on the panel). */
 const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
+/** ?clean=1 video capture: hides the fallback-wall note (see clean.ts for the emulator chrome). */
+const CLEAN_CAPTURE = new URLSearchParams(location.search).has('clean');
 
 // ---- layout constants (metres). Seated, ~0.6 m reach, key UI within ~30° of gaze centre.
 const DESK_FWD = 0.4, DESK_DOWN = 0.26;      // card spread in easy reach
@@ -74,6 +76,7 @@ export class MorningDeskSystem extends createSystem({
   /** Focus Mode: one task, big, in front; timer in task minutes. */
   focus: { id: string; length: number; t0: number; base: number; phase: 'run' | 'ask'; shown: string } | null = null;
   private summary!: Label;
+  private streakAnim = { t: 9, from: 0, to: 0 }; private sumDraw: ((k: number) => void) | null = null;
   /** ids of tasks a hand ray currently hovers (autoplay aims with it). */
   hoveredIds(): string[] { return [...this.items.values()].filter((x) => x.entity.hasComponent(Hovered)).map((x) => x.id); }
   noAutoAgent = false; // autoplay asks the planner explicitly
@@ -154,7 +157,7 @@ export class MorningDeskSystem extends createSystem({
     // passthrough dimmer: a dark shell around the head while focusing
     this.dim = new Mesh(new SphereGeometry(2.5, 24, 16), new MeshBasicMaterial({ color: '#0b0f0d', transparent: true, opacity: 0, side: BackSide, depthWrite: false }));
     this.dim.renderOrder = -1; this.dim.visible = false; scene.add(this.dim);
-    this.summary = new Label(0.54, 0.4); this.summary.mesh.visible = false;
+    this.summary = new Label(0.54, 0.44); this.summary.mesh.visible = false;
     // draw the summary over desk labels behind it (the streak tag must not show through)
     (this.summary.mesh.material as MeshBasicMaterial).depthTest = false; this.summary.mesh.renderOrder = 10;
     const se = this.world.createTransformEntity(this.summary.mesh, this.deskE); se.addComponent(RayInteractable);
@@ -239,7 +242,7 @@ export class MorningDeskSystem extends createSystem({
       const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
       g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
     };
-    side(this.left, 40, 0.95, -0.04); side(this.right, -45, 0.85, 0.04);
+    side(this.left, 37, 0.9, -0.04); side(this.right, -36, 0.85, 0.04); // inside a ~16:9 capture FoV
     for (const pe of this.queries.planes.entities) this.tryWall(pe);
     this.placed = true; this.redrawHeader();
   }
@@ -500,7 +503,7 @@ export class MorningDeskSystem extends createSystem({
     this.streakLabel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, `🌱 ${this.s.streak}-day streak · ${stage}`, W / 2, H / 2, 15, C.sageDeep, 600, W - 10, 'center'); });
   }
   private finishDay(): void {
-    completeDay(this.s); save(this.s); this.growPlant(); sfx.done();
+    const before = this.s.streak; completeDay(this.s); this.streakAnim = { t: 0, from: before, to: this.s.streak }; save(this.s); this.growPlant(); sfx.done();
     this.agentMsg = `Day closed. ${this.s.streak}-day streak, your plant grew. See you tomorrow.`; this.redrawAgent();
     this.showSummary();
   }
@@ -626,7 +629,7 @@ export class MorningDeskSystem extends createSystem({
     if (post.length) why.push(`${post.length} task${post.length > 1 ? 's were' : ' was'} postponed to keep the day fitting.`);
     const tip = post.length ? `Start with "${post[0]}" first thing.` : measured.length && actual < planned ? `Plan ${dur(Math.max(15, Math.round(actual / measured.length / 5) * 5))} blocks for similar tasks.` : doneN < today.length ? 'Schedule fewer blocks before your first meeting.' : 'Keep the same rhythm.';
     this.summary.mesh.visible = true; this.placeInView(this.summary.mesh, 0.62, -0.12);
-    this.summary.draw((g, W, H) => {
+    this.sumDraw = (k: number) => this.summary.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sage, 1);
       text(g, '🌙 Day so far', 36, 36, 26, C.ink, 700);
       lines.forEach(([k, v], i) => { text(g, k, 36, 82 + i * 30, 18, C.mute, 600); text(g, v, 170, 82 + i * 30, 17, C.ink, 600, W - 190); });
@@ -634,7 +637,14 @@ export class MorningDeskSystem extends createSystem({
       para(g, why.join(' ') || 'A quiet day.', 36, y, 16, W - 70, C.ink);
       text(g, `Tomorrow: ${tip}`, 36, H - 46, 17, C.sageDeep, 700, W - 60);
       text(g, 'tap to close', W - 24, 36, 13, C.mute, 400, W, 'right');
+      // streak moment: bar grows from yesterday's streak to today's (real state)
+      const a = this.streakAnim, v = a.from + (a.to - a.from) * k, max = Math.max(7, a.to + 2);
+      const ys = H - 92;
+      text(g, `🌱 Streak ${k >= 1 ? a.to : a.from}${k >= 1 && a.to > a.from ? ` (+${a.to - a.from})` : ''} days`, 36, ys, 18, C.sageDeep, 700);
+      g.fillStyle = '#d8d2c4'; g.beginPath(); g.roundRect(220, ys - 7, W - 260, 14, 7); g.fill();
+      g.fillStyle = C.sage; g.beginPath(); g.roundRect(220, ys - 7, (W - 260) * Math.min(1, v / max), 14, 7); g.fill();
     });
+    this.sumDraw(this.streakAnim.t >= 3 ? 1 : 0);
   }
   // Tutorial advances only when the user actually performs each gesture.
   private static TUT = [
@@ -726,7 +736,7 @@ export class MorningDeskSystem extends createSystem({
     this.header.draw((g, W, H) => {
       panel(g, W, H, C.paper, over ? C.warn : C.sage);
       text(g, `Today  ${fmt(this.s.dayStart)}–${fmt(this.s.dayStart + av)}`, 34, H * 0.34, 26, C.ink, 700);
-      text(g, this.wallMode === 'detected' ? (this.restored ? '📍 restored on your wall' : '📍 pinned to your wall') : `📍 no wall found: timeline placed ${WALL_FWD} m ahead`, 34, H * 0.74, 17, C.mute, 500, W * 0.55);
+      if (!CLEAN_CAPTURE || this.wallMode === 'detected') text(g, this.wallMode === 'detected' ? (this.restored ? '📍 restored on your wall' : '📍 pinned to your wall') : `📍 no wall found: timeline placed ${WALL_FWD} m ahead`, 34, H * 0.74, 17, C.mute, 500, W * 0.55);
       text(g, over ? `⚠ ${dur(tot)} planned / ${dur(av)} free` : `${dur(tot)} / ${dur(av)}`, W - 30, H / 2, 24, over ? '#b9772e' : C.sageDeep, 700, W, 'right');
     });
   }
@@ -896,6 +906,10 @@ export class MorningDeskSystem extends createSystem({
     if (!this.detailId) this.detail.mesh.visible = false;
     if ((this.pending || this.focus) && this.inXR()) this.detectThumbs(delta);
     this.updateFocus(delta);
+    if (this.sumDraw && this.summary.mesh.visible && this.streakAnim.t < 3.6) {
+      const p0 = Math.floor(this.streakAnim.t * 12); this.streakAnim.t += delta;
+      if (Math.floor(this.streakAnim.t * 12) !== p0) this.sumDraw(Math.min(1, Math.max(0, (this.streakAnim.t - 0.6) / 2.4)));
+    }
     this.persistWall();
     // agent acts on its own after a short beat
     if (this.agentTimer > 0) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }

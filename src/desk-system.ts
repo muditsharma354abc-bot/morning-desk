@@ -78,7 +78,7 @@ export class MorningDeskSystem extends createSystem({
     this.desk.add(tray.mesh);
     this.buildPlant();
     this.streakLabel = new Label(0.2, 0.034);
-    this.streakLabel.mesh.position.set(0.25, 0.012, 0.115); this.streakLabel.mesh.rotation.x = -1.0; // tag lying in front of the pot this.desk.add(this.streakLabel.mesh);
+    this.streakLabel.mesh.position.set(0.25, 0.012, 0.115); this.streakLabel.mesh.rotation.x = -1.0; this.desk.add(this.streakLabel.mesh); // tag lying in front of the pot
 
     // Wall: header + track + agent panel.
     this.header = new Label(TRACK_W + 0.2, 0.09);

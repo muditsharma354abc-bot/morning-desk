@@ -19,7 +19,9 @@ export interface PlanState {
   lastDone: string; // YYYY-MM-DD
   tutorialSeen: boolean;
 }
-const KEY = 'morning-desk.state.v1';
+export const IS_DEMO = new URLSearchParams(location.search).has('demo');
+// demo runs keep their own key so they never overwrite (or mark the tutorial seen for) a real visit
+const KEY = IS_DEMO ? 'morning-desk.demo.v1' : 'morning-desk.state.v1';
 const t = (id: string, title: string, minutes: number, priority: 1 | 2 | 3, note: string): Task => ({ id, title, minutes, priority, note });
 
 export function sampleState(): PlanState {
@@ -63,7 +65,7 @@ export function demoState(): PlanState {
 }
 
 export function load(): PlanState {
-  if (new URLSearchParams(location.search).has('demo')) return demoState();
+  if (IS_DEMO) return demoState();
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) return JSON.parse(raw) as PlanState;

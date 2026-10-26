@@ -61,6 +61,7 @@ export class MorningDeskSystem extends createSystem({
   private detailId = '';
   private plantGrow = 0;
   private lastDomPress = 0;
+  noAutoAgent = false; // autoplay asks the planner explicitly
 
   init(): void {
     this.s = load();
@@ -140,7 +141,10 @@ export class MorningDeskSystem extends createSystem({
     this.hookDom();
     this.syncItems();
     this.redrawAll();
-    if (!this.s.tutorialSeen) setTimeout(() => this.startTutorial(), 1200);
+    const q = new URLSearchParams(location.search);
+    // first real visit (or ?tutorial=1): start the hands tutorial automatically; never in demo/autoplay
+    if ((!this.s.tutorialSeen && !q.has('demo')) || q.has('tutorial')) setTimeout(() => this.startTutorial(), 1200);
+    if (q.has('autoplay')) setTimeout(() => void import('./autoplay.js').then((m) => m.runAutoplay(this as never, this.world)), 1500);
     if (new URLSearchParams(location.search).has('demo')) this.agentMsg = 'Demo loaded: 6h 45m planned for 6h free. Tap "Plan for me".';
   }
 
@@ -214,6 +218,7 @@ export class MorningDeskSystem extends createSystem({
       text(g, t, W / 2, H / 2, size, '#fff', 600, W, 'center');
     });
     const entity = this.world.createTransformEntity(label.mesh, parent);
+    label.mesh.userData.btn = t;
     entity.addComponent(RayInteractable);
     const b = { label, entity, action };
     this.buttons.set(entity.index, b);
@@ -344,7 +349,7 @@ export class MorningDeskSystem extends createSystem({
   }
   private release(id: string, p: Vector3, lateralSpeed: number, moved: number, held: number): void {
     this.marker.visible = false;
-    if (moved < 0.025 && held < 0.5) { this.openDetail(this.detailId === id ? '' : id); if (this.detailId) this.tutEvent('detail'); return; }
+    if (moved < (this.inXR() ? 0.04 : 0.025) && held < (this.inXR() ? 2.5 : 0.5)) { this.openDetail(this.detailId === id ? '' : id); if (this.detailId) this.tutEvent('detail'); return; }
     const idx = this.wallSlot(p);
     const s = this.s;
     const strip = (arr: string[]) => arr.filter((x) => x !== id);
@@ -362,7 +367,7 @@ export class MorningDeskSystem extends createSystem({
   }
   private commit(): void {
     save(this.s); this.syncItems(); this.redrawAll();
-    if (!this.pending && this.needsAgent()) this.agentTimer = 1.6; // agent notices overload by itself
+    if (!this.pending && !this.noAutoAgent && this.needsAgent()) this.agentTimer = 1.6; // agent notices overload by itself
   }
   private needsAgent(): boolean {
     const c = this.planner.nextChange(this.s);
@@ -454,8 +459,11 @@ export class MorningDeskSystem extends createSystem({
     { on: 'detail', msg: '👆 Quick pinch (tap) on a card to open its details.' },
     { on: 'decide', msg: '✨ Tap "Plan for me", then 👍 keep or 👎 undo the change.' },
   ];
-  private startTutorial(): void { this.tutStep = 0; this.tutorial.mesh.visible = true; this.tutorial.mesh.scale.setScalar(0.9); this.s.tutorialSeen = true; save(this.s); this.tutorialStep(); }
-  private endTutorial(): void { this.tutStep = -1; this.tutorial.mesh.visible = false; }
+  private startTutorial(): void { this.tutStep = 0; this.tutorial.mesh.visible = true; this.tutorial.mesh.scale.setScalar(0.9); this.tutorialStep(); }
+  private endTutorial(): void {
+    if (this.tutStep >= 0) { this.s.tutorialSeen = true; save(this.s); } // seen only once finished or skipped
+    this.tutStep = -1; this.tutorial.mesh.visible = false;
+  }
   private tutEvent(ev: string): void {
     if (this.tutStep < 0 || MorningDeskSystem.TUT[this.tutStep].on !== ev) return;
     this.tutStep++; sfx.yes();
@@ -509,8 +517,8 @@ export class MorningDeskSystem extends createSystem({
   private hookDom(): void {
     const el = this.world.renderer.domElement;
     const ndc = (e: PointerEvent) => new Vector2((e.clientX / el.clientWidth) * 2 - 1, -(e.clientY / el.clientHeight) * 2 + 1);
-    el.addEventListener('pointerdown', (e: PointerEvent) => {
-      if (this.world.visibilityState.value !== VisibilityState.NonImmersive) return;
+    window.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (this.inXR() || e.button !== 0 || !(e.target instanceof HTMLCanvasElement)) return;
       const id = this.pickAt(ndc(e), true);
       if (id?.startsWith('btn:')) { this.lastDomPress = performance.now(); this.buttons.get(Number(id.slice(4)))?.action(); return; }
       if (!id) return;
@@ -525,9 +533,11 @@ export class MorningDeskSystem extends createSystem({
       const cam = this.world.camera; const dir = new Vector3(ndc(e).x, ndc(e).y, 0.5).unproject(cam).sub(cam.position).normalize();
       const p = cam.position.clone().addScaledVector(dir, Math.min(this.mouseDrag.depth, 0.6));
       this.items.get(this.mouseDrag.id)!.label.mesh.position.copy(p);
-      this.drag.hist.push({ t: performance.now(), p }); if (this.drag.hist.length > 8) this.drag.hist.shift();
+      this.drag.hist.push({ t: performance.now(), p }); if (this.drag.hist.length > 120) this.drag.hist.shift();
       this.markerAt(this.wallSlot(p));
     }, { capture: true });
+    // tooltip should not linger after a drop
+    window.addEventListener('pointerup', () => { this.hoverId = ''; }, { capture: true });
     window.addEventListener('pointerup', () => { if (this.mouseDrag) { this.endDrag(); this.mouseDrag = null; } });
     const bind = (id: string, fn: () => void) => document.getElementById(id)?.addEventListener('click', fn);
     bind('btn-enter', () => this.world.launchXR());
@@ -571,14 +581,14 @@ export class MorningDeskSystem extends createSystem({
     let lateral = 0;
     for (let i = 1; i < d.hist.length; i++) {
       const h0 = d.hist[i - 1], h1 = d.hist[i];
-      if (b.t - h1.t > 200) continue;
+      if (b.t - h1.t > 1500) continue; // hand-tracking release can lag the flick itself
       const v = h1.p.clone().sub(h0.p).dot(right) / Math.max(0.008, (h1.t - h0.t) / 1000);
       if (Math.abs(v) > Math.abs(lateral)) lateral = v;
     }
-    const w0 = d.hist.find((h) => b.t - h.t <= 350) ?? b;
+    const w0 = d.hist.find((h) => b.t - h.t <= 500) ?? b;
     const side = b.p.clone().sub(w0.p).dot(right);
     if (Math.abs(lateral) < SWIPE_SPEED && Math.abs(side) >= 0.08 && b.t > w0.t) lateral = side / ((b.t - w0.t) / 1000) * 2;
-    this.release(d.id, p, (performance.now() - b.t) > 120 ? 0 : lateral, p.distanceTo(d.p0), (performance.now() - d.t0) / 1000);
+    this.release(d.id, p, lateral, p.distanceTo(d.p0), (performance.now() - d.t0) / 1000);
   }
 
   // ---------------------------------------------------------------- polish helpers
@@ -634,7 +644,7 @@ export class MorningDeskSystem extends createSystem({
       if (this.drag?.id === it.id && !this.mouseDrag) {
         if (grabbed) {
           const p = it.label.mesh.position.clone();
-          this.drag.hist.push({ t: performance.now(), p }); if (this.drag.hist.length > 8) this.drag.hist.shift();
+          this.drag.hist.push({ t: performance.now(), p }); if (this.drag.hist.length > 120) this.drag.hist.shift();
           this.markerAt(this.wallSlot(p)); continue;
         }
         this.endDrag();

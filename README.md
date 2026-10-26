@@ -65,15 +65,15 @@ The planner is rule-based and runs entirely on the device: there's no AI model, 
 
 Press **✓ Done** on the desk to close the day. Your streak goes up (if you also finished yesterday) and the desk plant grows. A **Day so far** panel shows:
 
-- **Tasks:** done out of today's scheduled tasks, for example "1 of 6 scheduled done". A split task counts once, and unscheduled tasks are listed separately ("4 not scheduled").
+- **Tasks:** done out of today's scheduled tasks, for example "4 of 6 scheduled done". A split task counts once, and unscheduled tasks are listed separately ("4 not scheduled").
 - **Focus time:** the focus minutes actually measured by the timer.
 - **Meetings:** how many and how long.
 - **Postponed:** tasks moved to tomorrow.
-- **Time saved** (or **Over plan**): shown only when there are measured focus blocks, always with the baseline next to it, for example "8m (planned 30m vs actual 22m)".
+- **Time saved** (or **Over plan**): shown only when there are measured focus blocks, always with the baseline next to it, for example "8m (planned 30m vs actual 22m)". In demo mode the clock runs fast, so this row is labelled "(demo clock, accelerated)".
 
 It ends with a short rule-based note on why the day went that way and one suggestion for tomorrow.
 
-![Day so far summary: 1 of 6 scheduled done, 26m focus, 4m saved (planned 30m vs actual 26m), 1 meeting clash fixed](docs/screenshots/04-day-summary-final.png)
+![Day so far summary from the demo run: 4 of 6 scheduled done, 1h 19m focus, 1 meeting, nothing postponed, 1 meeting clash fixed, streak 5 days](docs/screenshots/04-day-summary-final.png)
 
 ## Hands-only interactions
 

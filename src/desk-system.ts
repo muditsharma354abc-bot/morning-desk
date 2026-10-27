@@ -14,6 +14,17 @@ const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
 const CLEAN_CAPTURE = new URLSearchParams(location.search).has('clean');
 /** v2: ?mr=1 forces the MR flow in the IWER emulator (real headsets always use it, except ?demo / ?clean). */
 const MR_FORCED = new URLSearchParams(location.search).has('mr');
+/** Seated head position used for ?mr=1 in IWER's home_office room (metres). */
+const MR_SEAT: [number, number, number] = [0, 1.2, -1.45];
+/** IWER devui moves the emulated head through its player rig (as Shift+WASD does); offset it to MR_SEAT. */
+function seatEmulatedHead(): boolean {
+  const dev = (window as unknown as { IWER_DEVICE?: object }).IWER_DEVICE; if (!dev) return false;
+  for (const k of Object.getOwnPropertySymbols(dev)) {
+    const rig = (dev as Record<symbol, { devui?: { inputLayer?: { playerRig?: { position: Vector3 }; combinedCameraPosition?: Vector3 } } }>)[k]?.devui?.inputLayer;
+    if (rig?.playerRig && rig.combinedCameraPosition) { rig.playerRig.position.set(MR_SEAT[0], 0, MR_SEAT[2]); rig.combinedCameraPosition.set(...MR_SEAT); return true; }
+  }
+  return false;
+}
 const MR_KEY = 'morning-desk.mr.v2';               // { uuid, desk pose, wall pose } relative to IWSDK's persistent anchor
 const ANCHOR_UUID_KEY = 'iwsdk_scene_anchor_uuid'; // IWSDK SceneUnderstandingSystem's persistent anchor UUID
 
@@ -200,6 +211,9 @@ export class MorningDeskSystem extends createSystem({
       }
       this.placed = false; // re-place around the head once the session pose settles
       this.placeDelay = this.inXR() ? 0.6 : 0;
+      // ?mr=1 in IWER: sit the emulated headset at home_office's desk (seated eye height, facing the wall) so plane
+      // detection / hit-test find a real table within reach. Real headsets have no IWER_DEVICE and ignore this.
+      if (MR_FORCED && this.inXR() && seatEmulatedHead()) this.placeDelay = 1.0;
       if (this.inXR()) unlockAudio();
       // Focus Mode: when the timer asks "Done or more time?", any pinch adds 15 min (👍 = done)
       const ses = this.world.renderer.xr.getSession();

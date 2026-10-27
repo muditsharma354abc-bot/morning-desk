@@ -77,9 +77,9 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
 
     say('2/6  leave and re-enter XR: desk + wall come back in the same spot (persistent anchor)');
     { const before = posOf(sys.desk).map((v) => v.toFixed(3)).join(',');
-      await world.renderer.xr.getSession()?.end(); await until(() => world.visibilityState.value === VisibilityState.NonImmersive, 4000); await sleep(1200);
+      sys.mr.phase = 'idle'; sys.mr.desk = ''; await world.renderer.xr.getSession()?.end(); await until(() => world.visibilityState.value === VisibilityState.NonImmersive, 4000); await sleep(1200);
       await sys.enterXR(); await until(() => world.visibilityState.value !== VisibilityState.NonImmersive, 5000);
-      await until(() => sys.mr.phase === 'done', 8000); dev.primaryInputMode = 'hand'; await sleep(800);
+      await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 10000); dev.primaryInputMode = 'hand'; await sleep(800);
       const after = posOf(sys.desk).map((v) => v.toFixed(3)).join(',');
       say(`2/6  ${sys.mr.desk.startsWith('restored') ? 'restored' : 'NOT restored'} · same spot: ${before === after ? 'yes' : 'no'}`);
       document.body.dataset.restore = `${sys.mr.desk}|${before === after}`; cur = H(0.2, -0.32, -0.3); pin(R, cur); pin(L, H(-0.22, -0.55, -0.2)); await sleep(3500); }
@@ -87,7 +87,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     say('3/6  sit somewhere else, poke 📍 Re-place: desk + wall follow you');
     { let last = 0; await tween(1200, (k) => { leanEmulatedHead(0.25 * (k - last)); last = k; }); } // slide ~25 cm to the right
     await sleep(500); cur = H(0.2, -0.32, -0.3); pin(R, cur);
-    await press('Re-place'); await until(() => sys.mr.phase === 'done', 6000); await sleep(3000);
+    await press('Re-place'); await sleep(300); await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 6000); await sleep(3000);
 
     say('4/6  pinch a block to focus · 👍 done');
     const id = sys.s.timeline.find((x: string) => !sys.s.tasks[x].done);

@@ -98,17 +98,23 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
 
     if (sys.pending) { say('4/6  the planner adjusted the day · 👍 keep'); await thumbs(true); await until(() => !sys.pending, 3000); await sleep(1200); }
     say('5/6  🌙 Wind down: today in real numbers');
-    for (let i = 0; i < 3 && !sys.wind; i++) { await press('Wind down'); await sleep(400); }
-    await sleep(3600);
-    for (let i = 0; i < 3 && sys.wind?.step === 0; i++) await press('Next');
-    say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop');
-    for (let i = 0; sys.wind && sys.wind.step <= sys.wind.list.length && i < 8; i++) {
-      const t = sys.s.tasks[sys.wind.list[sys.wind.step - 1]]; await sleep(900);
-      await thumbs(t.priority === 1); // must-do → keep · others → drop (deterministic)
+    // state-driven so a missed poke just retries (deterministic outcome: must-dos kept, the rest dropped)
+    const log = (x: string) => { document.body.dataset.v2log = `${document.body.dataset.v2log ?? ''}${x};`; };
+    let said = 0; const t0 = performance.now();
+    while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 90000) {
+      const w = sys.wind;
+      if (sys.pending) { log('keep'); await thumbs(true); await sleep(600); continue; }
+      if (!w) { log('open'); await press('Wind down'); await sleep(said ? 400 : 3600); continue; }
+      if (w.step === 0) { if (!said) { await sleep(3500); } log('next'); await press('Next'); continue; }
+      if (w.step <= w.list.length) {
+        if (said < 1) { said = 1; say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop'); }
+        const t = sys.s.tasks[w.list[w.step - 1]]; await sleep(900); log(t.priority === 1 ? 'up' : 'down');
+        await thumbs(t.priority === 1); // must-do → keep · others → drop
+        continue;
+      }
+      if (said < 2) { said = 2; await sleep(2000); say('6/6  close the day: tomorrow starts with these'); }
+      log('close'); await press('Close day'); await sleep(400);
     }
-    await sleep(2000);
-    say('6/6  close the day: tomorrow starts with these');
-    for (let i = 0; i < 3 && sys.wind; i++) await press('Close day');
     await sleep(2500);
     say(`v2 demo complete · ${sys.s.streak}-day streak`);
   } catch (e) {

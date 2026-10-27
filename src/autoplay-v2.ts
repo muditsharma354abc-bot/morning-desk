@@ -104,7 +104,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop');
     for (let i = 0; sys.wind && sys.wind.step <= sys.wind.list.length && i < 8; i++) {
       const t = sys.s.tasks[sys.wind.list[sys.wind.step - 1]]; await sleep(900);
-      await thumbs(t.priority < 3); // must / should → keep · nice-to-have → drop (deterministic)
+      await thumbs(t.priority === 1); // must-do → keep · others → drop (deterministic)
     }
     await sleep(2000);
     say('6/6  close the day: tomorrow starts with these');

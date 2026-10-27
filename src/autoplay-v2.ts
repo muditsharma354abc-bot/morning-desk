@@ -52,7 +52,6 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const snap = () => JSON.stringify([!!sys.focus, sys.mr.phase, sys.wind?.step ?? -1, sys.s.streak, sys.agentMsg, document.body.dataset.wind ?? '']);
   const press = async (name: string) => {
     const b = button(name); if (!b) { say(`(button "${name}" not found)`); return; }
-    console.log('[MD] press', name);
     const p = posOf(b.label.mesh);
     const n = new Vector3(0, 0, 1).applyQuaternion(b.label.mesh.getWorldQuaternion(new (b.label.mesh.quaternion.constructor)())).toArray() as V3;
     const off = (d: number): V3 => [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d];
@@ -60,7 +59,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     R.poseId = 'point'; const from = cur, before = snap();
     await tween(800, (k) => tip(lerp3(from, off(0.07), k)));
     for (let a = 0; a < 2 && snap() === before; a++) {
-      await tween(260, (k) => tip(off(0.07 - 0.09 * k))); await until(() => snap() !== before, 500); await tween(220, (k) => tip(off(-0.02 + 0.09 * k)));
+      await tween(260, (k) => tip(off(0.07 - 0.09 * k))); await until(() => snap() !== before, 500);
     }
     cur = off(0.08); R.poseId = 'default'; pin(R, cur);
   };
@@ -86,7 +85,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       document.body.dataset.restore = `${sys.mr.desk}|${before === after}`; cur = H(0.2, -0.32, -0.3); pin(R, cur); pin(L, H(-0.22, -0.55, -0.2)); await sleep(3500); }
 
     say('3/6  sit somewhere else, poke 📍 Re-place: desk + wall follow you');
-    { let last = 0; await tween(1200, (k) => { leanEmulatedHead(0.25 * (k - last)); last = k; }); } // slide ~25 cm to the right
+    { let last = 0; await tween(1200, (k) => { leanEmulatedHead(0.18 * (k - last)); last = k; }); } // slide ~18 cm to the right
     await sleep(500); cur = H(0.2, -0.32, -0.3); pin(R, cur);
     for (let i = 0; i < 3 && sys.mr.desk.startsWith('restored'); i++) { await press('Re-place'); await sleep(400); } await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 6000); await sleep(3000);
 

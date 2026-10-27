@@ -83,7 +83,7 @@ export class MorningDeskSystem extends createSystem({
   private restored = false;
   private placeDelay = 0;
   private tutStep = -1;
-  private placed = false;
+  private placed = false; private wasXR = false;
   private drag: { id: string; t0: number; p0: Vector3; hist: { t: number; p: Vector3 }[] } | null = null;
   private mouseDrag: { id: string; depth: number; px: { t: number; x: number; y: number }[]; maxPx: number } | null = null;
   private tmp = new Vector3(); private tmp2 = new Vector3(); private q = new Quaternion();
@@ -170,7 +170,7 @@ export class MorningDeskSystem extends createSystem({
     this.placeHint = new Label(0.42, 0.06); this.placeHint.mesh.visible = false; this.placeHint.mesh.position.set(0, 0.12, -0.05); this.placeHint.mesh.rotation.x = -0.35; this.desk.add(this.placeHint.mesh);
     if (!CLEAN_CAPTURE || MR_FORCED) {
       this.replaceBtn = this.button('📍 Re-place', 0.12, () => this.replace(), this.deskE);
-      this.replaceBtn.label.mesh.position.set(-0.24, 0.02, 0.13); this.replaceBtn.label.mesh.rotation.x = -0.9; this.replaceBtn.label.mesh.visible = false;
+      this.replaceBtn.label.mesh.position.set(-0.24, 0.02, 0.13); this.replaceBtn.label.mesh.rotation.x = -0.5; this.replaceBtn.label.mesh.visible = false;
     }
 
     this.detail = new Label(0.3, 0.16); this.detail.mesh.visible = false;
@@ -223,11 +223,15 @@ export class MorningDeskSystem extends createSystem({
         if (this.inXR() && !it.entity.hasComponent(OneHandGrabbable)) it.entity.addComponent(OneHandGrabbable, { rotate: false });
         if (!this.inXR() && it.entity.hasComponent(OneHandGrabbable)) it.entity.removeComponent(OneHandGrabbable);
       }
-      this.placed = false; // re-place around the head once the session pose settles
-      this.placeDelay = this.inXR() ? 0.6 : 0;
-      // ?mr=1 in IWER: sit the emulated headset at home_office's desk (seated eye height, facing the wall) so plane
-      // detection / hit-test find a real table within reach. Real headsets have no IWER_DEVICE and ignore this.
-      if (MR_FORCED && this.inXR() && seatEmulatedHead()) this.placeDelay = 1.0;
+      // v2 MR flow: visible ↔ visible-blurred inside one session must not re-place (or re-seat) anything
+      const entering = this.inXR() && !this.wasXR; this.wasXR = this.inXR();
+      if (!(MR_FORCED || !(window as unknown as { IWER_DEVICE?: unknown }).IWER_DEVICE) || IS_DEMO && !MR_FORCED || entering || !this.inXR()) {
+        this.placed = false; // re-place around the head once the session pose settles
+        this.placeDelay = this.inXR() ? 0.6 : 0;
+        // ?mr=1 in IWER: sit the emulated headset at home_office's desk (seated eye height, facing the wall) so plane
+        // detection / hit-test find a real table within reach. Real headsets have no IWER_DEVICE and ignore this.
+        if (MR_FORCED && entering && seatEmulatedHead()) this.placeDelay = 1.0;
+      }
       if (this.inXR()) unlockAudio();
       // Focus Mode: when the timer asks "Done or more time?", any pinch adds 15 min (👍 = done)
       const ses = this.world.renderer.xr.getSession();

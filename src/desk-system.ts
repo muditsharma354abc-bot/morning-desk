@@ -1,7 +1,7 @@
 import {
   Color, createSystem, Matrix4, CylinderGeometry, Entity, Grabbed, Group, HemisphereLight, Mesh, MeshStandardMaterial,
   Hovered, OneHandGrabbable, PokeInteractable, Pressed, Quaternion, RayInteractable, SphereGeometry, Vector2, Vector3,
-  VisibilityState, XRAnchor, XRPlane,
+  VisibilityState, XRAnchor, XRPlane, SessionMode, PlaneGeometry, BoxGeometry,
 } from '@iwsdk/core';
 import { Label, panel, para, text } from './label.js';
 import { PlanChange, RulePlanner } from './planner.js';
@@ -13,7 +13,9 @@ const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
 /** ?clean=1 video capture: hides the fallback-wall note (see clean.ts for the emulator chrome). */
 const CLEAN_CAPTURE = new URLSearchParams(location.search).has('clean');
 /** v2: ?mr=1 forces the MR flow in the IWER emulator (real headsets always use it, except ?demo / ?clean). */
-const MR_FORCED = new URLSearchParams(location.search).has('mr');
+const MR_FORCED = new URLSearchParams(location.search).has('mr') || new URLSearchParams(location.search).has('vr');
+/** ?vr=1 (test): behave as if immersive-ar were unsupported → the VR-room fallback. */
+const FORCE_VR = new URLSearchParams(location.search).has('vr');
 /** Seated head position used for ?mr=1 in IWER's home_office room (metres). */
 const MR_SEAT: [number, number, number] = [0, 1.2, -1.45];
 /** IWER devui moves the emulated head through its player rig (as Shift+WASD does); offset it to MR_SEAT. */
@@ -56,6 +58,7 @@ export class MorningDeskSystem extends createSystem({
   private wall = new Group();
   private header!: Label;
   private tray = new Label(0.62, 0.3);
+  private vrRoom = new Group();
   private agentPanel!: Label;
   private detail!: Label;
   private tip!: Label; private tipId = '';
@@ -104,6 +107,12 @@ export class MorningDeskSystem extends createSystem({
     if (import.meta.env.DEV) (window as unknown as { __mdTest: unknown }).__mdTest = this; // dev-server test hook only
     const scene = this.world.scene;
     scene.add(new HemisphereLight(0xfff6e8, 0x6b7a72, 1.6));
+    { // VR-room fallback (devices without immersive-ar): floor + a desk-height table + a back wall, built around the desk
+      const floor = new Mesh(new PlaneGeometry(6, 6), new MeshStandardMaterial({ color: '#8a7a66', roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.name = 'vr-floor';
+      const table = new Mesh(new BoxGeometry(1.2, 0.04, 0.6), new MeshStandardMaterial({ color: '#b48a62', roughness: 0.8 })); table.position.set(0, -0.025, -0.05);
+      const back = new Mesh(new PlaneGeometry(4, 3), new MeshStandardMaterial({ color: '#d9d4c8', roughness: 1 })); back.position.set(0, 0.6, -1.0);
+      this.vrRoom.add(floor, table, back); this.vrRoom.visible = false; this.desk.add(this.vrRoom);
+    }
     this.deskE = this.world.createTransformEntity(this.desk, { persistent: true });
     this.wallE = this.world.createTransformEntity(this.wall, { persistent: true });
     this.setBackground(true);
@@ -239,7 +248,8 @@ export class MorningDeskSystem extends createSystem({
   // ---------------------------------------------------------------- placement
   private setBackground(flat: boolean): void {
     // Passthrough in MR: transparent background. In the flat browser view, a calm dawn tint.
-    this.world.scene.background = flat ? new Color('#cfd8d2') : null;
+    this.world.scene.background = flat ? new Color('#cfd8d2') : this.mr.vr ? new Color('#3a4440') : null;
+    this.vrRoom.visible = !flat && !!this.mr.vr; // no passthrough on this device: a simple virtual room instead
   }
   private place(): void {
     if (this.mrFlow()) { this.mrBegin(); return; }
@@ -331,6 +341,7 @@ export class MorningDeskSystem extends createSystem({
     this.mr.head = head; this.mr.fwd = fwd;
     this.tray.mesh.visible = true; this.placeHint.mesh.visible = false;
     this.layoutAround(head, fwd); // provisional, head-relative, until a surface is found
+    if (this.mr.vr) { this.mr.phase = 'scan'; this.mr.noPlanes = true; this.deskFound(this.desk.position.clone(), 'VR room'); this.placed = true; return; }
     const saved = localStorage.getItem(MR_KEY);
     this.mr = { ...this.mr, phase: saved && !this.mr.vr ? 'restore' : 'scan', t: 0, desk: '', wall: '', tapped: false };
     if (this.mr.phase === 'restore') { this.deskE.addComponent(XRAnchor); this.wallE.addComponent(XRAnchor); }
@@ -416,7 +427,7 @@ export class MorningDeskSystem extends createSystem({
     if (this.wallMode !== 'detected') { this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02; this.wall.rotation.set(0, yaw, 0); }
     this.mr.wall = this.wallMode === 'detected' ? 'wall plane' : `${WALL_FWD} m ahead`;
     this.layoutSides(head, yaw);
-    if (this.mr.vr) { this.mr.phase = 'done'; this.redrawHeader(); return; }
+    if (this.mr.vr) { const f = this.vrRoom.getObjectByName('vr-floor'); if (f) f.position.y = -this.desk.position.y; this.mr.phase = 'done'; this.redrawHeader(); return; }
     this.deskE.addComponent(XRAnchor); this.wallE.addComponent(XRAnchor);
     this.mr.phase = 'anchor'; this.mr.t = 0; this.redrawHeader();
   }
@@ -481,6 +492,13 @@ export class MorningDeskSystem extends createSystem({
     if (!this.mrFlow()) return;
     localStorage.removeItem(MR_KEY); sfx.pick();
     this.mrBegin();
+  }
+  /** Enter XR: passthrough (immersive-ar) when the device supports it, else the VR-room fallback. */
+  async enterXR(): Promise<void> {
+    let ar = !FORCE_VR;
+    try { if (ar && navigator.xr) ar = await navigator.xr.isSessionSupported('immersive-ar'); } catch { ar = false; }
+    this.mr.vr = !ar;
+    this.world.launchXR(ar ? undefined : { sessionMode: SessionMode.ImmersiveVR });
   }
   /** Test/autoplay hook: confirm the tap-to-place step (what a pinch does). */
   tapPlace(): void { if (this.mr.phase === 'tap') this.mr.tapped = true; }
@@ -982,7 +1000,7 @@ export class MorningDeskSystem extends createSystem({
       const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE;
       const hq = new URLSearchParams(location.search);
       if (iwer && hq.has('hands') && !hq.has('autoplay')) iwer.primaryInputMode = 'hand';
-      this.world.launchXR();
+      void this.enterXR();
     });
     bind('btn-plan', () => this.runAgent(true));
     bind('btn-done', () => this.finishDay());
@@ -1160,7 +1178,7 @@ export class MorningDeskSystem extends createSystem({
     }
     this.persistWall();
     this.mrStep(delta);
-    if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done';
+    if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.mr.vr;
     // agent acts on its own after a short beat
     if (this.agentTimer > 0) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }
     // tutorial

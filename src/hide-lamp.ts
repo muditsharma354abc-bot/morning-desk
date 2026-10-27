@@ -9,7 +9,7 @@ type V3 = { x: number; y: number; z: number };
 type Obj = { isMesh?: boolean; visible: boolean; userData: Record<string, unknown>; matrixWorld: unknown; material?: { color?: { r: number; g: number; b: number } };
   geometry?: { type: string; parameters?: { radius?: number; height?: number; openEnded?: boolean }; index?: { count: number; getX(i: number): number; setX(i: number, v: number): void; needsUpdate: boolean } | null;
     attributes: { position: { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } } };
-const LAMP = { minX: 0.25, maxX: 0.75, minY: 0.745, maxY: 1.35, minZ: -2.45, maxZ: -2.0 }; // world box around the lamp on the desk
+export const LAMP = { minX: 0.25, maxX: 0.75, minY: 0.745, maxY: 1.35, minZ: -2.45, maxZ: -2.0 }; // world box around the lamp on the desk
 
 export function enableLampHide(): void {
   const sweep = () => {

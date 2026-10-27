@@ -4,6 +4,7 @@ import {
   VisibilityState, XRAnchor, XRPlane, SessionMode, PlaneGeometry, BoxGeometry, Box3, Ray,
 } from '@iwsdk/core';
 import { Label, panel, para, text } from './label.js';
+import { LAMP } from './hide-lamp.js';
 import { PlanChange, RulePlanner } from './planner.js';
 import { C, sfx, unlockAudio } from './style.js';
 import { clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, layout, load, PlanState, save, scheduledMinutes } from './state.js';
@@ -623,6 +624,8 @@ export class MorningDeskSystem extends createSystem({
       const c = b.getCenter(new Vector3()); if (b.containsPoint(head) || c.clone().sub(head).dot(fwd) < 0.1) continue; // behind / around the user (chair)
       out.push(b.expandByScalar(0.02));
     }
+    // IWER home_office only: its desk lamp is not in the emulated mesh list, so add its known box (emulator-specific, see hide-lamp.ts)
+    if ((window as unknown as { IWER_DEVICE?: unknown }).IWER_DEVICE && out.length) out.push(new Box3(new Vector3(LAMP.minX, LAMP.minY, LAMP.minZ), new Vector3(LAMP.maxX, LAMP.maxY, LAMP.maxZ)));
     return out;
   }
   /** Is any corner of this panel hidden behind a real object (as seen from the head)? */
@@ -657,7 +660,10 @@ export class MorningDeskSystem extends createSystem({
     const fr = this.right.getWorldPosition(new Vector3()); const dir = fr.clone().sub(head); const d0 = dir.length(); dir.normalize();
     for (let d = d0; d >= 0.45; d -= 0.05) {
       this.right.position.copy(head).addScaledVector(dir, d); this.right.updateMatrixWorld(true);
-      if (!this.right.children.some((c) => c instanceof Mesh && this.occluded(c, head, boxes))) break;
+      if (!this.right.children.some((c) => c instanceof Mesh && this.occluded(c, head, boxes))) {
+        if (d < d0) this.right.position.copy(head).addScaledVector(dir, Math.max(0.45, d - 0.06)); // a few cm of air in front of the object
+        break;
+      }
       this.mr.blocked += '·';
     }
   }

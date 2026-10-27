@@ -40,7 +40,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const R = dev.hands.right, L = dev.hands.left;
   const head = () => sys.headCam().getWorldPosition(new Vector3());
   const H = (dx: number, dy: number, dz: number): V3 => { const h = head(); return [h.x + dx, h.y + dy, h.z + dz]; };
-  let cur: V3 = H(0.22, -0.3, -0.35);
+  let cur: V3 = H(-0.05, -0.36, -0.22);
   const pin = (h: any, p: V3, rot?: number[]) => h.setPin(rot ? { anchor: 'wrist', target: p, wristRotation: rot } : { anchor: 'grasp', target: p });
   pin(L, H(-0.22, -0.55, -0.2));
   const tween = async (ms: number, fn: (k: number) => void) => { const t0 = performance.now(); for (;;) { const t = Math.min(1, (performance.now() - t0) / ms); fn(ease(t)); if (t >= 1) return; await sleep(16); } };
@@ -59,8 +59,9 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     R.poseId = 'point'; const from = cur, before = snap();
     await tween(800, (k) => tip(lerp3(from, off(0.07), k)));
     for (let a = 0; a < 2 && snap() === before; a++) {
-      await tween(260, (k) => tip(off(0.07 - 0.09 * k))); await until(() => snap() !== before, 500);
+      await tween(800, (k) => tip(off(0.07 - 0.09 * k))); await until(() => snap() !== before, 700);
     }
+    log(`${name}${snap() === before ? '-' : '+'}`);
     cur = off(0.08); R.poseId = 'default'; pin(R, cur);
   };
   const thumbs = async (up: boolean) => {
@@ -70,10 +71,11 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     const before = snap(); await until(() => snap() !== before, 4000); await sleep(900);
     R.poseId = 'default'; pin(R, p);
   };
+  const log = (x: string) => { document.body.dataset.v2log = `${document.body.dataset.v2log ?? ''}${x};`; };
   const card = (id: string) => posOf(sys.items.get(id).label.mesh);
   try {
     say(`1/6  passthrough: desk on your real table, plan on your real wall (${sys.mr.desk} · ${sys.mr.wall})`);
-    await move(H(0.2, -0.32, -0.3), 900); await sleep(4000);
+    await move(H(-0.05, -0.36, -0.22), 900); await sleep(4000);
 
     say('2/6  leave and re-enter XR: desk + wall come back in the same spot (persistent anchor)');
     { const before = posOf(sys.desk).map((v) => v.toFixed(3)).join(',');
@@ -82,11 +84,11 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 10000); dev.primaryInputMode = 'hand'; await sleep(800);
       const after = posOf(sys.desk).map((v) => v.toFixed(3)).join(',');
       say(`2/6  ${sys.mr.desk.startsWith('restored') ? 'restored' : 'NOT restored'} · same spot: ${before === after ? 'yes' : 'no'}`);
-      document.body.dataset.restore = `${sys.mr.desk}|${before === after}`; cur = H(0.2, -0.32, -0.3); pin(R, cur); pin(L, H(-0.22, -0.55, -0.2)); await sleep(3500); }
+      document.body.dataset.restore = `${sys.mr.desk}|${before === after}`; cur = H(-0.05, -0.36, -0.22); pin(R, cur); pin(L, H(-0.22, -0.55, -0.2)); await sleep(3500); }
 
     say('3/6  Shift in your seat · poke 📍 Re-place');
     { let last = 0; await tween(1200, (k) => { leanEmulatedHead(0.18 * (k - last)); last = k; }); } // slide ~18 cm to the right
-    await sleep(500); cur = H(0.2, -0.32, -0.3); pin(R, cur);
+    await sleep(500); cur = H(-0.05, -0.36, -0.22); pin(R, cur);
     for (let i = 0; i < 3 && sys.mr.desk.startsWith('restored'); i++) { await press('Re-place'); await sleep(400); } await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 6000); await sleep(3000);
 
     say('4/6  pinch a block to focus · 👍 done');
@@ -99,7 +101,6 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     if (sys.pending) { say('4/6  the planner adjusted the day · 👍 keep'); await thumbs(true); await until(() => !sys.pending, 3000); await sleep(1200); }
     say('5/6  🌙 Wind down: today in real numbers');
     // state-driven so a missed poke just retries (deterministic outcome: must-dos kept, the rest dropped)
-    const log = (x: string) => { document.body.dataset.v2log = `${document.body.dataset.v2log ?? ''}${x};`; };
     let said = 0; const t0 = performance.now();
     while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 90000) {
       const w = sys.wind;

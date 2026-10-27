@@ -22,6 +22,9 @@
         },
         "hitTest": {
           "required": false
+        },
+        "meshDetection": {
+          "required": false
         }
       }
     },

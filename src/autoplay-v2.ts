@@ -84,7 +84,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       say(`2/6  ${sys.mr.desk.startsWith('restored') ? 'restored' : 'NOT restored'} · same spot: ${before === after ? 'yes' : 'no'}`);
       document.body.dataset.restore = `${sys.mr.desk}|${before === after}`; cur = H(0.2, -0.32, -0.3); pin(R, cur); pin(L, H(-0.22, -0.55, -0.2)); await sleep(3500); }
 
-    say('3/6  sit somewhere else, poke 📍 Re-place: desk + wall follow you');
+    say('3/6  Shift in your seat · poke 📍 Re-place');
     { let last = 0; await tween(1200, (k) => { leanEmulatedHead(0.18 * (k - last)); last = k; }); } // slide ~18 cm to the right
     await sleep(500); cur = H(0.2, -0.32, -0.3); pin(R, cur);
     for (let i = 0; i < 3 && sys.mr.desk.startsWith('restored'); i++) { await press('Re-place'); await sleep(400); } await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 6000); await sleep(3000);

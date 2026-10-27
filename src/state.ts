@@ -70,7 +70,7 @@ export function demoState(): PlanState {
     t('deep', 'Deep work: quarterly report', 90, 1, 'The big one. Charts + summary.'),
     t('gym', 'Gym session', 60, 2, 'Legs day. Bring water.'),
     t('blog', 'Write blog draft', 45, 3, 'Outline + first 500 words.'),
-    t('plants', 'Water the plants', 10, 3, 'Balcony + desk plant.'),
+    t('plants', 'Stretch break', 10, 3, 'Stand up: neck, shoulders, back.'),
     t('read', 'Read 20 pages', 30, 3, 'Current book, paper copy.'),
     t('prep', 'Prep client sync notes', 20, 1, 'Three questions for the 14:00 call.'),
   ];

@@ -1,7 +1,7 @@
 /**
  * ?demo=1&autoplay=1&mr=1 — v2 filming pass (deterministic). Same rules as autoplay.ts: it drives the REAL app through
  * the IWER emulator's hands (poke, pinch, thumbs); the app's own input code decides every outcome.
- * Order: MR placement (real table + real wall) → lean aside + poke 📍 Re-place → one Focus block → 🌙 Wind down → close day.
+ * Order: MR placement (real table + real wall) → exit + re-enter XR (anchor restore) → lean aside + poke 📍 Re-place → one Focus block → 🌙 Wind down → close day.
  */
 import { Vector3, VisibilityState, type World } from '@iwsdk/core';
 import { selectHandsInToolbar } from './autoplay.js';
@@ -72,31 +72,40 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   };
   const card = (id: string) => posOf(sys.items.get(id).label.mesh);
   try {
-    say(`1/5  passthrough: desk on your real table, plan on your real wall (${sys.mr.desk} · ${sys.mr.wall})`);
+    say(`1/6  passthrough: desk on your real table, plan on your real wall (${sys.mr.desk} · ${sys.mr.wall})`);
     await move(H(0.2, -0.32, -0.3), 900); await sleep(4000);
 
-    say('2/5  sit somewhere else, poke 📍 Re-place: desk + wall follow you');
+    say('2/6  leave and re-enter XR: desk + wall come back in the same spot (persistent anchor)');
+    { const before = posOf(sys.desk).map((v) => v.toFixed(3)).join(',');
+      await world.renderer.xr.getSession()?.end(); await until(() => world.visibilityState.value === VisibilityState.NonImmersive, 4000); await sleep(1200);
+      await sys.enterXR(); await until(() => world.visibilityState.value !== VisibilityState.NonImmersive, 5000);
+      await until(() => sys.mr.phase === 'done', 8000); dev.primaryInputMode = 'hand'; await sleep(800);
+      const after = posOf(sys.desk).map((v) => v.toFixed(3)).join(',');
+      say(`2/6  ${sys.mr.desk.startsWith('restored') ? 'restored' : 'NOT restored'} · same spot: ${before === after ? 'yes' : 'no'}`);
+      document.body.dataset.restore = `${sys.mr.desk}|${before === after}`; cur = H(0.2, -0.32, -0.3); pin(R, cur); pin(L, H(-0.22, -0.55, -0.2)); await sleep(3500); }
+
+    say('3/6  sit somewhere else, poke 📍 Re-place: desk + wall follow you');
     { let last = 0; await tween(1200, (k) => { leanEmulatedHead(0.25 * (k - last)); last = k; }); } // slide ~25 cm to the right
     await sleep(500); cur = H(0.2, -0.32, -0.3); pin(R, cur);
     await press('Re-place'); await until(() => sys.mr.phase === 'done', 6000); await sleep(3000);
 
-    say('3/5  pinch a block to focus · 👍 done');
+    say('4/6  pinch a block to focus · 👍 done');
     const id = sys.s.timeline.find((x: string) => !sys.s.tasks[x].done);
     const c = card(id); await move([c[0], c[1] + 0.05, c[2] + 0.12], 1300); await move(card(id), 500); await sleep(250);
     await pinch(1); await sleep(120); await pinch(0);
     await until(() => !!sys.focus, 3000); await sleep(2500);
     await thumbs(true); await until(() => !sys.focus, 3000); await sleep(1500);
 
-    say('4/5  🌙 Wind down: today in real numbers');
+    say('5/6  🌙 Wind down: today in real numbers');
     await press('Wind down'); await sleep(4000);
     await press('Next');
-    say('4/5  roll each unfinished task: 👍 keep for tomorrow · 👎 drop');
+    say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop');
     for (let i = 0; sys.wind && sys.wind.step <= sys.wind.list.length && i < 8; i++) {
       const t = sys.s.tasks[sys.wind.list[sys.wind.step - 1]]; await sleep(900);
       await thumbs(t.priority < 3); // must / should → keep · nice-to-have → drop (deterministic)
     }
     await sleep(2000);
-    say('5/5  close the day: tomorrow starts with these');
+    say('6/6  close the day: tomorrow starts with these');
     await press('Close day'); await sleep(2500);
     say(`v2 demo complete · ${sys.s.streak}-day streak`);
   } catch (e) {

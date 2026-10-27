@@ -17,6 +17,8 @@ const MR_FORCED = new URLSearchParams(location.search).has('mr') || new URLSearc
 /** ?vr=1 (test): behave as if immersive-ar were unsupported → the VR-room fallback. */
 /** ?noplanes=1 (test): ignore plane detection + hit-test → exercises the tap-to-place fallback. */
 const NO_PLANES = new URLSearchParams(location.search).has('noplanes');
+/** v2 Wind-down replaces '✓ Done' everywhere except the filmed v1 demo (?demo without ?mr). */
+const WIND_DOWN = !IS_DEMO || new URLSearchParams(location.search).has('mr');
 const FORCE_VR = new URLSearchParams(location.search).has('vr');
 /** Seated head position used for ?mr=1 in IWER's home_office room (metres). */
 const MR_SEAT: [number, number, number] = [0, 1.2, -1.45];
@@ -156,7 +158,7 @@ export class MorningDeskSystem extends createSystem({
 
     // Desk buttons (reachable row at the back of the desk).
     const row: [string, () => void][] = [
-      ['✨ Plan for me', () => this.runAgent(true)], ['✓ Done', () => this.finishDay()],
+      ['✨ Plan for me', () => this.runAgent(true)], [WIND_DOWN ? '🌙 Wind down' : '✓ Done', () => (WIND_DOWN ? this.openWindDown() : this.finishDay())],
       ['? Tutorial', () => this.startTutorial()], ['↺ Demo reset', () => this.reset(true)],
     ];
     row.forEach(([t, fn], i) => {
@@ -198,6 +200,7 @@ export class MorningDeskSystem extends createSystem({
     const se = this.world.createTransformEntity(this.summary.mesh, this.deskE); se.addComponent(RayInteractable);
     this.buttons.set(se.index, { label: this.summary, entity: se, action: () => { this.summary.mesh.visible = false; } });
 
+    this.buildWindDown();
     this.tutorial = new Label(0.62, 0.1); this.tutorial.mesh.visible = false;
     const te = this.world.createTransformEntity(this.tutorial.mesh, this.wallE); te.addComponent(RayInteractable);
     this.buttons.set(te.index, { label: this.tutorial, entity: te, action: () => this.endTutorial() });
@@ -245,6 +248,7 @@ export class MorningDeskSystem extends createSystem({
     if ((!this.s.tutorialSeen && !q.has('demo')) || q.has('tutorial')) setTimeout(() => this.startTutorial(), 1200);
     if (q.has('autoplay')) setTimeout(() => void import('./autoplay.js').then((m) => m.runAutoplay(this as never, this.world)), 1500);
     if (new URLSearchParams(location.search).has('demo')) this.agentMsg = this.demoMsg();
+    if (this.s.carriedIn) { this.agentMsg = `☀️ Good morning. Your plan starts with ${this.s.carriedIn} task${this.s.carriedIn > 1 ? 's' : ''} you rolled over last night.`; delete this.s.carriedIn; save(this.s); this.redrawAgent(); }
   }
 
   // ---------------------------------------------------------------- placement
@@ -518,6 +522,86 @@ export class MorningDeskSystem extends createSystem({
     this.placeHint.draw((g, W, H) => { panel(g, W, H, C.sageDeep, undefined, 1); text(g, '📍 Look where you want your desk, then pinch', W / 2, H / 2, 18, '#fff', 600, W - 30, 'center'); });
   }
 
+  // ---------------------------------------------------------------- v2: Wind-down (evening ritual: recap → roll each unfinished task → close the day)
+  wind: { step: number; list: string[]; kept: string[]; dropped: string[] } | null = null;
+  private windPanel!: Label; private windE!: Entity; private windBtns: Btn[] = [];
+  private buildWindDown(): void {
+    this.windPanel = new Label(0.5, 0.3); this.windPanel.mesh.visible = false;
+    (this.windPanel.mesh.material as MeshBasicMaterial).depthTest = false; this.windPanel.mesh.renderOrder = 10;
+    this.windE = this.world.createTransformEntity(this.windPanel.mesh, this.deskE);
+    const a = this.button('a', 0.16, () => this.windChoice(true), this.windE), b = this.button('b', 0.16, () => this.windChoice(false), this.windE);
+    a.label.mesh.position.set(-0.09, -0.115, 0.004); b.label.mesh.position.set(0.09, -0.115, 0.004);
+    for (const x of [a, b]) { (x.label.mesh.material as MeshBasicMaterial).depthTest = false; x.label.mesh.renderOrder = 11; }
+    this.windBtns = [a, b];
+  }
+  /** Unfinished = scheduled today but not done, plus anything already parked for tomorrow. Real state only. */
+  private unfinished(): string[] {
+    const s = this.s; const seen = new Set<string>();
+    return [...s.timeline, ...s.tomorrow].filter((id) => s.tasks[id] && !s.tasks[id].done && !seen.has(id) && (seen.add(id), true));
+  }
+  openWindDown(): void {
+    if (this.focus) this.endFocus(false); this.summary.mesh.visible = false; this.pending = null;
+    this.wind = { step: 0, list: this.unfinished(), kept: [], dropped: [] };
+    this.windPanel.mesh.visible = true; this.placeInView(this.windPanel.mesh, 0.55, -0.14); sfx.pick();
+    document.body.dataset.wind = '0'; this.drawWind();
+  }
+  /** A = Next / → Tomorrow / ✓ Close day · B = Close / ✕ Drop / ← Back. 👍 / 👎 do the same. */
+  windChoice(a: boolean): void {
+    const w = this.wind; if (!w) return;
+    const n = w.list.length;
+    if (w.step === 0) { if (!a) { this.closeWind(); return; } w.step = 1; }
+    else if (w.step <= n) { (a ? w.kept : w.dropped).push(w.list[w.step - 1]); a ? sfx.yes() : sfx.skip(); w.step++; }
+    else { if (a) { this.closeDay(); return; } w.step = 0; w.kept = []; w.dropped = []; }
+    document.body.dataset.wind = String(w.step); this.drawWind();
+  }
+  private closeWind(): void { this.wind = null; this.windPanel.mesh.visible = false; delete document.body.dataset.wind; }
+  private closeDay(): void {
+    const w = this.wind!; const s = this.s;
+    for (const id of w.dropped) {
+      s.timeline = s.timeline.filter((x) => x !== id); s.tomorrow = s.tomorrow.filter((x) => x !== id); s.stack = s.stack.filter((x) => x !== id);
+      delete s.tasks[id];
+    }
+    s.carry = [...w.kept];
+    const before = s.streak; completeDay(s); this.streakAnim = { t: 9, from: before, to: s.streak }; save(s); sfx.done();
+    this.closeWind(); this.syncItems();
+    this.agentMsg = `🌙 Day closed. ${w.kept.length ? `Tomorrow starts with ${w.kept.length} task${w.kept.length > 1 ? 's' : ''}.` : 'Nothing carried over.'} ${s.streak}-day streak.`;
+    document.body.dataset.wind = 'closed'; this.redrawAll();
+  }
+  private drawWind(): void {
+    const w = this.wind; if (!w) return; const s = this.s; const n = w.list.length;
+    const [la, lb] = w.step === 0 ? ['Next →', '✕ Close'] : w.step <= n ? ['→ Tomorrow', '✕ Drop'] : ['✓ Close day', '← Back'];
+    this.windBtns.forEach((b, i) => {
+      const t = i ? lb : la; b.label.mesh.userData.btn = t;
+      b.label.draw((g, W, H) => { panel(g, W, H, i ? '#7a837d' : C.sageDeep, undefined, 1); text(g, t, W / 2, H / 2, 21, '#fff', 600, W - 16, 'center'); });
+    });
+    this.windPanel.draw((g, W, H) => {
+      panel(g, W, H, C.paper, '#5e6a7a', 1);
+      text(g, '🌙 Wind down', 32, 34, 24, C.ink, 700);
+      text(g, w.step === 0 ? 'step 1 · today' : w.step <= n ? `step 2 · roll over ${w.step} of ${n}` : 'step 3 · tomorrow', W - 28, 34, 15, C.mute, 600, W, 'right');
+      if (w.step === 0) {
+        const sched = s.timeline.filter((id) => s.tasks[id]); const done = sched.filter((id) => s.tasks[id].done).length;
+        const lines: [string, string][] = [
+          ['Done today', `${done} of ${sched.length} scheduled`],
+          ['Focus time', dur(s.focusMinutes ?? 0)],
+          ['Unfinished', n ? `${n} task${n > 1 ? 's' : ''}` : 'none'],
+        ];
+        lines.forEach(([k, v], i) => { text(g, k, 32, 84 + i * 32, 19, C.mute, 600); text(g, v, 190, 84 + i * 32, 19, C.ink, 700, W - 210); });
+        para(g, n ? 'Next: decide, one by one, what rolls into tomorrow.' : 'Everything scheduled is done.', 32, 182, 16, W - 60, C.sageDeep);
+      } else if (w.step <= n) {
+        const t = s.tasks[w.list[w.step - 1]];
+        text(g, t.title, 32, 96, 28, C.ink, 700, W - 60);
+        text(g, `${dur(t.minutes)} · ${['', 'must do', 'should do', 'nice to have'][t.priority]}`, 32, 132, 18, C.sageDeep, 600, W - 60);
+        text(g, 'Roll into tomorrow?  👍 keep · 👎 drop', 32, 176, 17, C.mute, 500, W - 60);
+      } else {
+        const titles = w.kept.map((id) => s.tasks[id]?.title).filter(Boolean);
+        text(g, titles.length ? 'Tomorrow starts with:' : 'Tomorrow starts fresh.', 32, 84, 19, C.ink, 700, W - 60);
+        titles.slice(0, 4).forEach((t, i) => text(g, `${i + 1}. ${t}`, 44, 116 + i * 26, 18, C.ink, 500, W - 80));
+        if (titles.length > 4) text(g, `+${titles.length - 4} more`, 44, 116 + 4 * 26, 16, C.mute, 500);
+        if (w.dropped.length) text(g, `Dropped: ${w.dropped.length}`, W - 28, 84, 16, C.mute, 500, W, 'right');
+      }
+    });
+  }
+
   // ---------------------------------------------------------------- items
   private button(t: string, w: number, action: () => void, parent: Entity): Btn {
     const label = new Label(w, 0.042);
@@ -750,6 +834,7 @@ export class MorningDeskSystem extends createSystem({
   }
   // ---------------------------------------------------------------- Focus Mode
   private onThumb(dir: number): void {
+    if (this.wind) { this.windChoice(dir > 0); return; }
     if (this.focus) { if (dir > 0) this.endFocus(true); return; } // 👍 = done (early or at the bell)
     this.decide(dir > 0);
   }
@@ -1006,7 +1091,8 @@ export class MorningDeskSystem extends createSystem({
       void this.enterXR();
     });
     bind('btn-plan', () => this.runAgent(true));
-    bind('btn-done', () => this.finishDay());
+    bind('btn-done', () => (WIND_DOWN ? this.openWindDown() : this.finishDay()));
+    if (WIND_DOWN) { const el = document.getElementById('btn-done'); if (el) el.textContent = '🌙 Wind down'; }
     bind('btn-tutorial', () => this.startTutorial());
     bind('btn-demo', () => this.reset(true));
   }
@@ -1173,7 +1259,7 @@ export class MorningDeskSystem extends createSystem({
     // details card: soft scale-in
     if (this.detail.mesh.visible) { const d = this.detail.mesh.scale.x; this.detail.mesh.scale.setScalar(d + (1 - d) * k); }
     if (!this.detailId) this.detail.mesh.visible = false;
-    if ((this.pending || this.focus) && this.inXR()) this.detectThumbs(delta);
+    if ((this.pending || this.focus || this.wind) && this.inXR()) this.detectThumbs(delta);
     this.updateFocus(delta);
     if (this.sumDraw && this.summary.mesh.visible && this.streakAnim.t < 3.6) {
       const p0 = Math.floor(this.streakAnim.t * 12); this.streakAnim.t += delta;

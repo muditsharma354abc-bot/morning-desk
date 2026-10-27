@@ -26,6 +26,8 @@ export interface PlanState {
   meetings?: Meeting[];
   focusMinutes?: number;   // measured focus time today
   conflictsFixed?: number;
+  carry?: string[];        // v2 wind-down: tasks rolled into tomorrow (tomorrow's plan starts with them)
+  carriedIn?: number;      // how many came in this morning (for the morning message)
 }
 export const IS_DEMO = new URLSearchParams(location.search).has('demo');
 // demo runs keep their own key so they never overwrite (or mark the tutorial seen for) a real visit
@@ -103,9 +105,20 @@ export function load(): PlanState {
   if (IS_DEMO) return demoState();
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as PlanState;
+    if (raw) return rollover(JSON.parse(raw) as PlanState);
   } catch { /* ignore */ }
   return sampleState();
+}
+/** v2: the first load on a new day after a wind-down: done tasks clear, the timeline starts with the carried-over tasks. */
+export function rollover(s: PlanState): PlanState {
+  if (!s.carry || !s.lastDone || s.lastDone === today()) return s;
+  const carry = s.carry.filter((id) => s.tasks[id]);
+  for (const id of Object.keys(s.tasks)) if (s.tasks[id].done) delete s.tasks[id];
+  for (const id of carry) { const t = s.tasks[id]; delete t.after; delete t.actual; }
+  const live = (a: string[]) => a.filter((id) => s.tasks[id] && !carry.includes(id));
+  s.timeline = carry; s.stack = live(s.stack); s.tomorrow = []; s.skipped = []; s.meetings = []; s.focusMinutes = 0; s.conflictsFixed = 0;
+  s.carriedIn = carry.length; delete s.carry;
+  save(s); return s;
 }
 export function clearStorage(): void {
   for (const k of Object.keys(localStorage)) if (k.startsWith('morning-desk.')) localStorage.removeItem(k);
@@ -116,13 +129,15 @@ export function save(s: PlanState): void {
 export const clone = (s: PlanState): PlanState => JSON.parse(JSON.stringify(s));
 /** Minutes from day start to the end of the last block (meetings included). */
 export const scheduledMinutes = (s: PlanState) => (s.timeline.length ? layout(s).end - s.dayStart : 0);
-export const today = () => new Date().toISOString().slice(0, 10);
+/** ?nextday=1 (test only): pretend it is tomorrow, to verify the wind-down → morning rollover. */
+const DAY_SHIFT = new URLSearchParams(location.search).has('nextday') ? 864e5 : 0;
+export const today = () => new Date(Date.now() + DAY_SHIFT).toISOString().slice(0, 10);
 
 /** Marks today's ritual complete; extends or resets the streak. Returns new streak. */
 export function completeDay(s: PlanState): number {
   const d = today();
   if (s.lastDone === d) return s.streak;
-  const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  const y = new Date(Date.now() + DAY_SHIFT - 864e5).toISOString().slice(0, 10);
   s.streak = s.lastDone === y || s.lastDone === '' ? s.streak + 1 : 1;
   s.lastDone = d;
   return s.streak;

@@ -15,6 +15,8 @@ const CLEAN_CAPTURE = new URLSearchParams(location.search).has('clean');
 /** v2: ?mr=1 forces the MR flow in the IWER emulator (real headsets always use it, except ?demo / ?clean). */
 const MR_FORCED = new URLSearchParams(location.search).has('mr') || new URLSearchParams(location.search).has('vr');
 /** ?vr=1 (test): behave as if immersive-ar were unsupported → the VR-room fallback. */
+/** ?noplanes=1 (test): ignore plane detection + hit-test → exercises the tap-to-place fallback. */
+const NO_PLANES = new URLSearchParams(location.search).has('noplanes');
 const FORCE_VR = new URLSearchParams(location.search).has('vr');
 /** Seated head position used for ?mr=1 in IWER's home_office room (metres). */
 const MR_SEAT: [number, number, number] = [0, 1.2, -1.45];
@@ -341,7 +343,8 @@ export class MorningDeskSystem extends createSystem({
     this.mr.head = head; this.mr.fwd = fwd;
     this.tray.mesh.visible = true; this.placeHint.mesh.visible = false;
     this.layoutAround(head, fwd); // provisional, head-relative, until a surface is found
-    if (this.mr.vr) { this.mr.phase = 'scan'; this.mr.noPlanes = true; this.deskFound(this.desk.position.clone(), 'VR room'); this.placed = true; return; }
+    this.mr.noPlanes = !!this.mr.vr || NO_PLANES;
+    if (this.mr.vr) { this.mr.phase = 'scan'; this.deskFound(this.desk.position.clone(), 'VR room'); this.placed = true; return; }
     const saved = localStorage.getItem(MR_KEY);
     this.mr = { ...this.mr, phase: saved && !this.mr.vr ? 'restore' : 'scan', t: 0, desk: '', wall: '', tapped: false };
     if (this.mr.phase === 'restore') { this.deskE.addComponent(XRAnchor); this.wallE.addComponent(XRAnchor); }
@@ -512,7 +515,7 @@ export class MorningDeskSystem extends createSystem({
   }
   private showPlaceHint(): void {
     this.placeHint.mesh.visible = true;
-    this.placeHint.draw((g, W, H) => { panel(g, W, H, C.sageDeep, undefined, 1); text(g, '📍 No desk found. Look where you want it, then pinch to set it here.', W / 2, H / 2, 18, '#fff', 600, W - 30, 'center'); });
+    this.placeHint.draw((g, W, H) => { panel(g, W, H, C.sageDeep, undefined, 1); text(g, '📍 Look where you want your desk, then pinch', W / 2, H / 2, 18, '#fff', 600, W - 30, 'center'); });
   }
 
   // ---------------------------------------------------------------- items

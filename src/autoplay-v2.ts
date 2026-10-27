@@ -1,0 +1,105 @@
+/**
+ * ?demo=1&autoplay=1&mr=1 — v2 filming pass (deterministic). Same rules as autoplay.ts: it drives the REAL app through
+ * the IWER emulator's hands (poke, pinch, thumbs); the app's own input code decides every outcome.
+ * Order: MR placement (real table + real wall) → lean aside + poke 📍 Re-place → one Focus block → 🌙 Wind down → close day.
+ */
+import { Vector3, VisibilityState, type World } from '@iwsdk/core';
+import { selectHandsInToolbar } from './autoplay.js';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type V3 = [number, number, number];
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const ease = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+
+/** Move the emulated head sideways (what Shift+A/D does in IWER). */
+function leanEmulatedHead(dx: number): void {
+  const dev = (window as any).IWER_DEVICE; if (!dev) return;
+  for (const k of Object.getOwnPropertySymbols(dev)) {
+    const l = dev[k]?.devui?.inputLayer; if (l?.playerRig && l.combinedCameraPosition) { l.playerRig.position.x += dx; l.combinedCameraPosition.x += dx; return; }
+  }
+}
+
+export async function runAutoplayV2(sys: any, world: World): Promise<void> {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#2f3a36e6;color:#f4efe4;font:600 15px system-ui,sans-serif;padding:8px 16px;border-radius:16px;pointer-events:none;display:flex;gap:10px;align-items:center';
+  const tag = document.createElement('span'); tag.textContent = '▶ autoplay demo · v2'; tag.style.cssText = 'background:#9cbf9b;color:#2f3a36;border-radius:10px;padding:2px 8px;font-size:12px';
+  el.append(tag, document.createElement('span')); document.body.append(el);
+  const say = (t: string) => { el.lastChild!.textContent = t; };
+  const dev = (window as any).IWER_DEVICE;
+  if (!dev) { say('needs the IWER emulator (desktop browser)'); return; }
+  sys.noAutoAgent = true;
+  localStorage.removeItem('morning-desk.mr.v2'); // deterministic: always place from scratch
+  say('starting…');
+  dev.primaryInputMode = 'hand';
+  await sys.enterXR();
+  for (let i = 0; i < 50 && world.visibilityState.value === VisibilityState.NonImmersive; i++) await sleep(100);
+  const until = async (cond: () => boolean, ms: number) => { const t0 = performance.now(); while (!cond() && performance.now() - t0 < ms) await sleep(30); return cond(); };
+  await until(() => sys.mr.phase === 'done', 8000);
+  await selectHandsInToolbar(); dev.primaryInputMode = 'hand'; await sleep(600);
+
+  const R = dev.hands.right, L = dev.hands.left;
+  const head = () => sys.headCam().getWorldPosition(new Vector3());
+  const H = (dx: number, dy: number, dz: number): V3 => { const h = head(); return [h.x + dx, h.y + dy, h.z + dz]; };
+  let cur: V3 = H(0.22, -0.3, -0.35);
+  const pin = (h: any, p: V3, rot?: number[]) => h.setPin(rot ? { anchor: 'wrist', target: p, wristRotation: rot } : { anchor: 'grasp', target: p });
+  pin(L, H(-0.22, -0.55, -0.2));
+  const tween = async (ms: number, fn: (k: number) => void) => { const t0 = performance.now(); for (;;) { const t = Math.min(1, (performance.now() - t0) / ms); fn(ease(t)); if (t >= 1) return; await sleep(16); } };
+  const lerp3 = (a: V3, b: V3, k: number) => [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * k) as V3;
+  const move = async (to: V3, ms = 1000) => { const from = cur; await tween(ms, (k) => pin(R, lerp3(from, to, k))); cur = to; };
+  const pinch = async (v: number, ms = 120) => { const from = R.pinchValue ?? 0; await tween(ms, (k) => R.updatePinchValue(from + (v - from) * k)); };
+  const posOf = (o: any): V3 => o.getWorldPosition(new Vector3()).toArray() as V3;
+  const button = (name: string) => [...sys.buttons.values()].find((b: any) => b.label.mesh.visible && b.label.mesh.userData.btn?.includes(name));
+  const snap = () => JSON.stringify([!!sys.focus, sys.mr.phase, sys.wind?.step ?? -1, sys.s.streak, sys.agentMsg, document.body.dataset.wind ?? '']);
+  const press = async (name: string) => {
+    const b = button(name); if (!b) { say(`(button "${name}" not found)`); return; }
+    const p = posOf(b.label.mesh);
+    const n = new Vector3(0, 0, 1).applyQuaternion(b.label.mesh.getWorldQuaternion(new (b.label.mesh.quaternion.constructor)())).toArray() as V3;
+    const off = (d: number): V3 => [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d];
+    const tip = (q: V3) => R.setPin({ anchor: 'index-tip', target: q });
+    R.poseId = 'point'; const from = cur, before = snap();
+    await tween(800, (k) => tip(lerp3(from, off(0.07), k)));
+    for (let a = 0; a < 2 && snap() === before; a++) {
+      await tween(260, (k) => tip(off(0.07 - 0.09 * k))); await until(() => snap() !== before, 500); await tween(220, (k) => tip(off(-0.02 + 0.09 * k)));
+    }
+    cur = off(0.08); R.poseId = 'default'; pin(R, cur);
+  };
+  const thumbs = async (up: boolean) => {
+    const s2 = Math.SQRT1_2, rot = up ? [0, 0, -s2, s2] : [0, 0, s2, s2];
+    const p = H(0.06, -0.18, -0.32); await move(p, 700);
+    R.poseId = 'thumbs-up'; pin(R, p, rot); await sleep(500);
+    const before = snap(); await until(() => snap() !== before, 4000); await sleep(900);
+    R.poseId = 'default'; pin(R, p);
+  };
+  const card = (id: string) => posOf(sys.items.get(id).label.mesh);
+  try {
+    say(`1/5  passthrough: desk on your real table, plan on your real wall (${sys.mr.desk} · ${sys.mr.wall})`);
+    await move(H(0.2, -0.32, -0.3), 900); await sleep(4000);
+
+    say('2/5  sit somewhere else, poke 📍 Re-place: desk + wall follow you');
+    { let last = 0; await tween(1200, (k) => { leanEmulatedHead(0.25 * (k - last)); last = k; }); } // slide ~25 cm to the right
+    await sleep(500); cur = H(0.2, -0.32, -0.3); pin(R, cur);
+    await press('Re-place'); await until(() => sys.mr.phase === 'done', 6000); await sleep(3000);
+
+    say('3/5  pinch a block to focus · 👍 done');
+    const id = sys.s.timeline.find((x: string) => !sys.s.tasks[x].done);
+    const c = card(id); await move([c[0], c[1] + 0.05, c[2] + 0.12], 1300); await move(card(id), 500); await sleep(250);
+    await pinch(1); await sleep(120); await pinch(0);
+    await until(() => !!sys.focus, 3000); await sleep(2500);
+    await thumbs(true); await until(() => !sys.focus, 3000); await sleep(1500);
+
+    say('4/5  🌙 Wind down: today in real numbers');
+    await press('Wind down'); await sleep(4000);
+    await press('Next');
+    say('4/5  roll each unfinished task: 👍 keep for tomorrow · 👎 drop');
+    for (let i = 0; sys.wind && sys.wind.step <= sys.wind.list.length && i < 8; i++) {
+      const t = sys.s.tasks[sys.wind.list[sys.wind.step - 1]]; await sleep(900);
+      await thumbs(t.priority < 3); // must / should → keep · nice-to-have → drop (deterministic)
+    }
+    await sleep(2000);
+    say('5/5  close the day: tomorrow starts with these');
+    await press('Close day'); await sleep(2500);
+    say(`v2 demo complete · ${sys.s.streak}-day streak`);
+  } catch (e) {
+    say(`autoplay stopped: ${(e as Error).message}`);
+  }
+}

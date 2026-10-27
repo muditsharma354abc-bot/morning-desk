@@ -246,7 +246,8 @@ export class MorningDeskSystem extends createSystem({
     const q = new URLSearchParams(location.search);
     // first real visit (or ?tutorial=1): start the hands tutorial automatically; never in demo/autoplay
     if ((!this.s.tutorialSeen && !q.has('demo')) || q.has('tutorial')) setTimeout(() => this.startTutorial(), 1200);
-    if (q.has('autoplay')) setTimeout(() => void import('./autoplay.js').then((m) => m.runAutoplay(this as never, this.world)), 1500);
+    if (q.has('autoplay') && MR_FORCED) setTimeout(() => void import('./autoplay-v2.js').then((m) => m.runAutoplayV2(this as never, this.world)), 1500);
+    else if (q.has('autoplay')) setTimeout(() => void import('./autoplay.js').then((m) => m.runAutoplay(this as never, this.world)), 1500);
     if (new URLSearchParams(location.search).has('demo')) this.agentMsg = this.demoMsg();
     if (this.s.carriedIn) { this.agentMsg = `☀️ Good morning. Your plan starts with ${this.s.carriedIn} task${this.s.carriedIn > 1 ? 's' : ''} you rolled over last night.`; delete this.s.carriedIn; save(this.s); this.redrawAgent(); }
   }

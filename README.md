@@ -1,6 +1,6 @@
 # Morning Desk
 
-**Plan, focus, adapt and measure your day with your hands.** Morning Desk is a mixed-reality day planner for Meta Quest 3: your tasks sit on the desk in front of you, your day hangs on your real wall, a focus mode helps you do one thing at a time, and a rule-based smart planner keeps the schedule realistic as the day changes.
+**Plan, focus, adapt and measure your day with your hands.** Morning Desk is a mixed-reality day planner for Meta Quest 3: your tasks sit on the desk in front of you, your day hangs on the wall in front of you, a focus mode helps you do one thing at a time, and a rule-based smart planner keeps the schedule realistic as the day changes.
 
 [![Live demo](https://img.shields.io/badge/live%20demo-GitHub%20Pages-2f7d5b)](https://muditsharma354abc-bot.github.io/morning-desk/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -12,7 +12,8 @@ Built for the Start Developer Competition (Productivity track, New Experience di
 | --- | --- |
 | [Live app](https://muditsharma354abc-bot.github.io/morning-desk/) | Your own plan, saved on this device. The hands tutorial starts on your first visit. |
 | [Demo state](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1) | A fixed sample day with a 14:00 Client sync and a 90-minute deep-work block that runs into it, so the planner has something to fix. It uses separate storage and never touches your real plan. |
-| [Autoplay demo](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1) | A hands-free walkthrough of about a minute that drives the real app through emulated hands, with captions. It needs a desktop browser (it uses the built-in emulator). |
+| [Autoplay demo](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1) | A hands-free walkthrough of about 2–3 minutes that drives the real app through emulated hands, with captions. It needs a desktop browser (it uses the built-in emulator). |
+| [v2 MR autoplay](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1) | About 2 minutes in the emulator's simulated room: desk and timeline placed on the room's table and wall, the same spot after re-entering XR, Re-place, one focus block, and Wind-down. |
 
 On a Quest 3, open the live app in the Meta Quest Browser and press **Enter XR**. On a desktop browser the built-in emulator runs it, no headset or extension needed.
 
@@ -20,10 +21,11 @@ On a Quest 3, open the live app in the Meta Quest Browser and press **Enter XR**
 
 ## Plan, Focus, Adapt, Measure
 
-1. **Plan.** Pinch a task card off the desk and drop it on the wall timeline. Fixed meetings are part of the day, and any block that runs into one is flagged.
+1. **Plan.** Pinch a task card off the desk and drop it on the timeline. Fixed meetings are part of the day, and any block that runs into one is flagged.
 2. **Focus.** A quick pinch on a task opens Focus Mode with a 25 or 50 minute timer.
 3. **Adapt.** When a focus block ends early or late, later blocks shift by the measured time, and the smart planner re-checks the day for meeting clashes and overload.
 4. **Measure.** The day summary reports only what was actually measured.
+5. **Wind down.** In the evening, **🌙 Wind down** recaps what got done, lets you keep or drop each unfinished task, and starts tomorrow's timeline with the ones you kept.
 
 ## The spatial layout
 
@@ -63,7 +65,7 @@ The planner is rule-based and runs entirely on the device: there's no AI model, 
 
 ## The day summary
 
-Press **✓ Done** on the desk to close the day. Your streak goes up (if you also finished yesterday) and the desk plant grows. A **Day so far** panel shows:
+Press **✓ Done** on the desk to close the day. Your streak goes up if you also finished yesterday. It's a plain day count, with no other rewards. A **Day so far** panel shows:
 
 - **Tasks:** done out of today's scheduled tasks, for example "4 of 6 scheduled done". A split task counts once, and unscheduled tasks are listed separately ("4 not scheduled").
 - **Focus time:** the focus minutes actually measured by the timer.
@@ -103,17 +105,33 @@ The autoplay demo selects the emulator's hands mode by itself. To pinch by hand 
 
 ## What's tested and what isn't
 
-- Everything has been run in the built-in WebXR emulator (IWER) only. Nothing has been tested on a real Quest 3 yet, so wall detection, anchors, hand tracking and performance on the headset are unverified.
+- Everything has been run in the built-in WebXR emulator (IWER) and its simulated room only. Nothing has been tested on a real Quest 3 yet.
+- **Needs a headset to verify:** how real passthrough looks and feels, whether cards read well on a real desk, plane detection and hit-test in real rooms, anchors surviving real sessions, reboots and space changes, real-world reach and comfort (seated or standing), real hand tracking for pinch, poke and thumbs, and the VR fallback on a device without immersive-ar.
 - Manual pinch through the emulator's pinch latch has been verified by script, but not yet by a person dragging by hand.
 - Ray pinch on far timeline blocks is untested.
 
-## Wall anchor and fallback
+## Mixed reality: desk, wall and anchors (v2)
 
-In XR the app uses plane detection to find a vertical wall in front of you within comfortable seated viewing distance and pins the timeline there with a WebXR anchor. The pose is saved against IWSDK's persistent anchor, so the timeline can come back on the same wall next session.
+On a headset the app starts an immersive-ar passthrough session, so the planner sits in your real room.
 
-If no suitable wall is found (or the browser has no plane detection), the timeline is placed **1.1 m in front of you at eye height**, and the header says it's using the fallback.
+- **Desk:** it looks for a table-height surface first, then tries a hit-test, and if both fail it asks you to tap to place the desk about 60 cm ahead.
+- **Timeline:** it goes on a detected wall in front of you. If no wall is found, it floats about 1.1 m ahead at eye height.
+- **Same spot next session:** the desk and wall positions are saved against a persistent WebXR anchor and restored next time. If the anchor can't be found, you place them again.
+- **📍 Re-place** on the desk moves everything to where you're sitting now.
+- **VR fallback:** if the browser can't do immersive-ar, you get a virtual room instead.
 
-Everything stays close: task cards sit on a virtual desk about 0.4 m ahead and 0.26 m below eye level, the Focus and summary panels open about 0.6 m in front of you and a task's detail card about 0.7 m, and the timeline only snaps to a real wall 0.5–1.7 m away (otherwise the 1.1 m fallback). Input is WebXR hand tracking: pinch, fingertip poke, sideways flick and thumbs-up / thumbs-down.
+![v2 in the emulator's simulated room: desk on the room's table, timeline on its wall](docs/screenshots/05-mr-placement.png)
+
+![Wind-down: keep or drop each unfinished task for tomorrow](docs/screenshots/06-wind-down.png)
+
+Close-up distances: cards sit within reach (about 60 cm), the Focus and summary panels open about 0.6 m in front of you, and a task's detail card about 0.7 m. Key UI stays within about ±30° of the centre of view.
+
+### URL flags
+
+- `?mr=1` runs the MR flow in the emulator, seated at the simulated room's desk. Real headsets use it automatically.
+- `?demo=1&autoplay=1&mr=1` is the v2 walkthrough. `?demo=1&autoplay=1&clean=1` is the original walkthrough, unchanged.
+- `?tutorial=1` restarts the tutorial on a fresh sample desk, and `?hands=1` opens the emulator in hands mode.
+- Test flags: `?vr=1` (as if immersive-ar weren't supported), `?noplanes=1` (forces tap to place) and `?nextday=1` (pretends it's tomorrow, to check the wind-down rollover).
 
 ## Run it locally
 
@@ -148,10 +166,11 @@ It builds with the `/morning-desk/` base path and publishes `dist/` to the `gh-p
 
 ```
 src/
-  desk-system.ts   desk, wall timeline, boards, gestures, Focus Mode, summary, tutorial, streak and plant
+  desk-system.ts   desk, wall timeline, boards, gestures, Focus Mode, summary, tutorial, wind-down, streak
   planner.ts       Planner interface + RulePlanner (meeting clash, long-block split, overload)
   state.ts         plan state, demo day with meetings, layout around meetings, local storage, streak
   autoplay.ts      ?demo=1&autoplay=1 walkthrough through emulated hands
+  autoplay-v2.ts   ?demo=1&autoplay=1&mr=1 walkthrough (placement, Re-place, wind-down)
   label.ts, style.ts   canvas labels, palette, sounds
 ```
 

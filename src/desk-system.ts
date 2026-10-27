@@ -1,7 +1,7 @@
 import {
   Color, createSystem, Matrix4, CylinderGeometry, Entity, Grabbed, Group, HemisphereLight, Mesh, MeshStandardMaterial,
   Hovered, OneHandGrabbable, PokeInteractable, Pressed, Quaternion, RayInteractable, SphereGeometry, Vector2, Vector3,
-  VisibilityState, XRAnchor, XRPlane,
+  VisibilityState, XRAnchor, XRPlane, SessionMode, PlaneGeometry, BoxGeometry,
 } from '@iwsdk/core';
 import { Label, panel, para, text } from './label.js';
 import { PlanChange, RulePlanner } from './planner.js';
@@ -12,6 +12,27 @@ import { BackSide, MeshBasicMaterial } from '@iwsdk/core';
 const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
 /** ?clean=1 video capture: hides the fallback-wall note (see clean.ts for the emulator chrome). */
 const CLEAN_CAPTURE = new URLSearchParams(location.search).has('clean');
+/** v2: ?mr=1 forces the MR flow in the IWER emulator (real headsets always use it, except ?demo / ?clean). */
+const MR_FORCED = new URLSearchParams(location.search).has('mr') || new URLSearchParams(location.search).has('vr');
+/** ?vr=1 (test): behave as if immersive-ar were unsupported → the VR-room fallback. */
+/** ?noplanes=1 (test): ignore plane detection + hit-test → exercises the tap-to-place fallback. */
+const NO_PLANES = new URLSearchParams(location.search).has('noplanes');
+/** v2 Wind-down replaces '✓ Done' everywhere except the filmed v1 demo (?demo without ?mr). */
+const WIND_DOWN = !IS_DEMO || new URLSearchParams(location.search).has('mr');
+const FORCE_VR = new URLSearchParams(location.search).has('vr');
+/** Seated head position used for ?mr=1 in IWER's home_office room (metres). */
+const MR_SEAT: [number, number, number] = [0, 1.2, -1.45];
+/** IWER devui moves the emulated head through its player rig (as Shift+WASD does); offset it to MR_SEAT. */
+function seatEmulatedHead(): boolean {
+  const dev = (window as unknown as { IWER_DEVICE?: object }).IWER_DEVICE; if (!dev) return false;
+  for (const k of Object.getOwnPropertySymbols(dev)) {
+    const rig = (dev as Record<symbol, { devui?: { inputLayer?: { playerRig?: { position: Vector3 }; combinedCameraPosition?: Vector3 } } }>)[k]?.devui?.inputLayer;
+    if (rig?.playerRig && rig.combinedCameraPosition) { rig.playerRig.position.set(MR_SEAT[0], 0, MR_SEAT[2]); rig.combinedCameraPosition.set(...MR_SEAT); return true; }
+  }
+  return false;
+}
+const MR_KEY = 'morning-desk.mr.v2';               // { uuid, desk pose, wall pose } relative to IWSDK's persistent anchor
+const ANCHOR_UUID_KEY = 'iwsdk_scene_anchor_uuid'; // IWSDK SceneUnderstandingSystem's persistent anchor UUID
 
 // ---- layout constants (metres). Seated, ~0.6 m reach, key UI within ~30° of gaze centre.
 const DESK_FWD = 0.4, DESK_DOWN = 0.26;      // card spread in easy reach
@@ -40,6 +61,8 @@ export class MorningDeskSystem extends createSystem({
   private deskE!: Entity; private wallE!: Entity;
   private wall = new Group();
   private header!: Label;
+  private tray = new Label(0.62, 0.3);
+  private vrRoom = new Group();
   private agentPanel!: Label;
   private detail!: Label;
   private tip!: Label; private tipId = '';
@@ -48,7 +71,6 @@ export class MorningDeskSystem extends createSystem({
   private restoreWall: number[] | null = null; private wallSaved = false;
   private tutorial!: Label;
   private marker!: Mesh;
-  private plant = new Group();
   private streakLabel!: Label;
   private yesBtn!: Btn; private noBtn!: Btn;
   private pending: PlanChange | null = null;
@@ -61,12 +83,11 @@ export class MorningDeskSystem extends createSystem({
   private restored = false;
   private placeDelay = 0;
   private tutStep = -1;
-  private placed = false;
+  private placed = false; private wasXR = false;
   private drag: { id: string; t0: number; p0: Vector3; hist: { t: number; p: Vector3 }[] } | null = null;
   private mouseDrag: { id: string; depth: number; px: { t: number; x: number; y: number }[]; maxPx: number } | null = null;
   private tmp = new Vector3(); private tmp2 = new Vector3(); private q = new Quaternion();
   private detailId = '';
-  private plantGrow = 0;
   private lastDomPress = 0;
   private meetingLabels: Label[] = [];
   private deskRow: Mesh[] = [];
@@ -90,6 +111,12 @@ export class MorningDeskSystem extends createSystem({
     if (import.meta.env.DEV) (window as unknown as { __mdTest: unknown }).__mdTest = this; // dev-server test hook only
     const scene = this.world.scene;
     scene.add(new HemisphereLight(0xfff6e8, 0x6b7a72, 1.6));
+    { // VR-room fallback (devices without immersive-ar): floor + a desk-height table + a back wall, built around the desk
+      const floor = new Mesh(new PlaneGeometry(6, 6), new MeshStandardMaterial({ color: '#8a7a66', roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.name = 'vr-floor';
+      const table = new Mesh(new BoxGeometry(1.2, 0.04, 0.6), new MeshStandardMaterial({ color: '#b48a62', roughness: 0.8 })); table.position.set(0, -0.025, -0.05);
+      const back = new Mesh(new PlaneGeometry(4, 3), new MeshStandardMaterial({ color: '#d9d4c8', roughness: 1 })); back.position.set(0, 0.6, -1.0);
+      this.vrRoom.add(floor, table, back); this.vrRoom.visible = false; this.desk.add(this.vrRoom);
+    }
     this.deskE = this.world.createTransformEntity(this.desk, { persistent: true });
     this.wallE = this.world.createTransformEntity(this.wall, { persistent: true });
     this.setBackground(true);
@@ -99,14 +126,13 @@ export class MorningDeskSystem extends createSystem({
     this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag to plan', 30, H / 2, 20, C.ink, 700, W - 40); });
     this.progress = new Label(0.7, 0.08); this.progress.mesh.position.set(0, 0.44, -0.25); this.wall.add(this.progress.mesh);
 
-    // Desk surface (soft paper tray) + plant + streak.
-    const tray = new Label(0.62, 0.3);
+    // Desk surface (soft paper tray) + streak.
+    const tray = this.tray;
     tray.draw((g, W, H) => panel(g, W, H, '#e9e2d3', undefined, 0.55));
     tray.mesh.rotation.x = -Math.PI / 2; tray.mesh.position.set(0, -0.005, 0);
     this.desk.add(tray.mesh);
-    this.buildPlant();
     this.streakLabel = new Label(0.2, 0.034);
-    this.streakLabel.mesh.position.set(0.27, 0.012, 0.06); this.streakLabel.mesh.rotation.x = -1.0; this.desk.add(this.streakLabel.mesh); // tag in front of the pot, so the plant never hides it
+    this.streakLabel.mesh.position.set(0.27, 0.012, 0.06); this.streakLabel.mesh.rotation.x = -1.0; this.desk.add(this.streakLabel.mesh); 
 
     // Wall: header + track + agent panel.
     this.header = new Label(TRACK_W + 0.2, 0.09);
@@ -132,13 +158,20 @@ export class MorningDeskSystem extends createSystem({
 
     // Desk buttons (reachable row at the back of the desk).
     const row: [string, () => void][] = [
-      ['✨ Plan for me', () => this.runAgent(true)], ['✓ Done', () => this.finishDay()],
+      ['✨ Plan for me', () => this.runAgent(true)], [WIND_DOWN ? '🌙 Wind down' : '✓ Done', () => (WIND_DOWN ? this.openWindDown() : this.finishDay())],
       ['? Tutorial', () => this.startTutorial()], ['↺ Demo reset', () => this.reset(true)],
     ];
     row.forEach(([t, fn], i) => {
       const b = this.button(t, 0.125, fn, this.deskE); this.deskRow.push(b.label.mesh);
       b.label.mesh.position.set(-0.24 + i * 0.135, 0.035, -0.17); b.label.mesh.rotation.x = -0.5;
     });
+
+    // v2 MR: tap-to-place hint + Re-place button (front-left of the desk, within reach)
+    this.placeHint = new Label(0.42, 0.06); this.placeHint.mesh.visible = false; this.placeHint.mesh.position.set(0, 0.12, -0.05); this.placeHint.mesh.rotation.x = -0.35; this.desk.add(this.placeHint.mesh);
+    if (!CLEAN_CAPTURE || MR_FORCED) {
+      this.replaceBtn = this.button('📍 Re-place', 0.12, () => this.replace(), this.deskE);
+      this.replaceBtn.label.mesh.position.set(-0.24, 0.02, 0.13); this.replaceBtn.label.mesh.rotation.x = -0.5; this.replaceBtn.label.mesh.visible = false;
+    }
 
     this.detail = new Label(0.3, 0.16); this.detail.mesh.visible = false;
     const de = this.world.createTransformEntity(this.detail.mesh, this.deskE);
@@ -167,6 +200,7 @@ export class MorningDeskSystem extends createSystem({
     const se = this.world.createTransformEntity(this.summary.mesh, this.deskE); se.addComponent(RayInteractable);
     this.buttons.set(se.index, { label: this.summary, entity: se, action: () => { this.summary.mesh.visible = false; } });
 
+    this.buildWindDown();
     this.tutorial = new Label(0.62, 0.1); this.tutorial.mesh.visible = false;
     const te = this.world.createTransformEntity(this.tutorial.mesh, this.wallE); te.addComponent(RayInteractable);
     this.buttons.set(te.index, { label: this.tutorial, entity: te, action: () => this.endTutorial() });
@@ -189,12 +223,19 @@ export class MorningDeskSystem extends createSystem({
         if (this.inXR() && !it.entity.hasComponent(OneHandGrabbable)) it.entity.addComponent(OneHandGrabbable, { rotate: false });
         if (!this.inXR() && it.entity.hasComponent(OneHandGrabbable)) it.entity.removeComponent(OneHandGrabbable);
       }
-      this.placed = false; // re-place around the head once the session pose settles
-      this.placeDelay = this.inXR() ? 0.6 : 0;
+      // v2 MR flow: visible ↔ visible-blurred inside one session must not re-place (or re-seat) anything
+      const entering = this.inXR() && !this.wasXR; this.wasXR = this.inXR();
+      if (!(MR_FORCED || !(window as unknown as { IWER_DEVICE?: unknown }).IWER_DEVICE) || IS_DEMO && !MR_FORCED || entering || !this.inXR()) {
+        this.placed = false; // re-place around the head once the session pose settles
+        this.placeDelay = this.inXR() ? 0.6 : 0;
+        // ?mr=1 in IWER: sit the emulated headset at home_office's desk (seated eye height, facing the wall) so plane
+        // detection / hit-test find a real table within reach. Real headsets have no IWER_DEVICE and ignore this.
+        if (MR_FORCED && entering && seatEmulatedHead()) this.placeDelay = 1.0;
+      }
       if (this.inXR()) unlockAudio();
       // Focus Mode: when the timer asks "Done or more time?", any pinch adds 15 min (👍 = done)
       const ses = this.world.renderer.xr.getSession();
-      if (ses && !(ses as unknown as { mdHook?: boolean }).mdHook) { (ses as unknown as { mdHook?: boolean }).mdHook = true; ses.addEventListener('selectstart', () => { if (this.focus?.phase === 'ask') this.moreTime(); }); }
+      if (ses && !(ses as unknown as { mdHook?: boolean }).mdHook) { (ses as unknown as { mdHook?: boolean }).mdHook = true; ses.addEventListener('selectstart', () => { if (this.mr.phase === 'tap' && this.mr.t > 0.5) { this.mr.tapped = true; return; } if (this.focus?.phase === 'ask') this.moreTime(); }); }
       // hands-first: in the desktop emulator, switch to emulated hands (the devui can switch back)
       const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE;
       // (input mode left to the IWER toolbar: setting it from code desynced the devui corner panels)
@@ -209,16 +250,20 @@ export class MorningDeskSystem extends createSystem({
     const q = new URLSearchParams(location.search);
     // first real visit (or ?tutorial=1): start the hands tutorial automatically; never in demo/autoplay
     if ((!this.s.tutorialSeen && !q.has('demo')) || q.has('tutorial')) setTimeout(() => this.startTutorial(), 1200);
-    if (q.has('autoplay')) setTimeout(() => void import('./autoplay.js').then((m) => m.runAutoplay(this as never, this.world)), 1500);
+    if (q.has('autoplay') && MR_FORCED) setTimeout(() => void import('./autoplay-v2.js').then((m) => m.runAutoplayV2(this as never, this.world)), 1500);
+    else if (q.has('autoplay')) setTimeout(() => void import('./autoplay.js').then((m) => m.runAutoplay(this as never, this.world)), 1500);
     if (new URLSearchParams(location.search).has('demo')) this.agentMsg = this.demoMsg();
+    if (this.s.carriedIn) { this.agentMsg = `☀️ Good morning. Your plan starts with ${this.s.carriedIn} task${this.s.carriedIn > 1 ? 's' : ''} you rolled over last night.`; delete this.s.carriedIn; save(this.s); this.redrawAgent(); }
   }
 
   // ---------------------------------------------------------------- placement
   private setBackground(flat: boolean): void {
     // Passthrough in MR: transparent background. In the flat browser view, a calm dawn tint.
-    this.world.scene.background = flat ? new Color('#cfd8d2') : null;
+    this.world.scene.background = flat ? new Color('#cfd8d2') : this.mr.vr ? new Color('#3a4440') : null;
+    this.vrRoom.visible = !flat && !!this.mr.vr; // no passthrough on this device: a simple virtual room instead
   }
   private place(): void {
+    if (this.mrFlow()) { this.mrBegin(); return; }
     // in XR the rendered head is the XR camera; the flat camera's pose is stale there
     const cam = this.inXR() ? this.world.renderer.xr.getCamera() : this.world.camera; cam.updateWorldMatrix(true, false);
     const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
@@ -256,16 +301,17 @@ export class MorningDeskSystem extends createSystem({
     this.placed = true; this.redrawHeader();
   }
   /** Pin the timeline onto a detected vertical plane in front of the user, then anchor it. */
-  private tryWall(e: Entity): void {
+  private tryWall(e: Entity, force = false): void {
     if (this.wallMode === 'detected') return;
+    if (this.mrFlow() && !force) return; // v2 MR flow places the wall itself (after the desk)
     const plane = e.getValue(XRPlane, '_plane') as { orientation?: string } | undefined;
     const o = e.object3D; if (!o || plane?.orientation !== 'vertical') return;
     const cam = this.headCam();
-    const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
+    const head = force && this.mr.head ? this.mr.head.clone() : new Vector3().setFromMatrixPosition(cam.matrixWorld);
     const p = new Vector3().setFromMatrixPosition(o.matrixWorld);
     const n = new Vector3(0, 1, 0).applyQuaternion(o.getWorldQuaternion(new Quaternion()));
     const d = p.distanceTo(head);
-    const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new Quaternion()));
+    const fwd = force && this.mr.fwd ? this.mr.fwd.clone() : new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new Quaternion()));
     // seated: only walls within comfortable view distance; farther walls fall back to 1.1 m ahead
     if (d < 0.5 || d > 1.7 || fwd.dot(p.clone().sub(head).normalize()) < 0.7) return;
     if (n.dot(head.clone().sub(p)) < 0) n.negate();
@@ -275,9 +321,290 @@ export class MorningDeskSystem extends createSystem({
     this.wall.position.copy(hit).addScaledVector(n, 0.03);
     this.wall.rotation.set(0, Math.atan2(n.x, n.z), 0);
     this.wallMode = 'detected';
+    if (force) { this.redrawHeader(); return; } // MR flow anchors desk + wall together
     if (!this.wallE.hasComponent(XRAnchor)) this.wallE.addComponent(XRAnchor); // world-locked to the real wall
     this.wallSaved = false; // save pose relative to IWSDK's persistent anchor once attached
     this.redrawHeader();
+  }
+
+  // ---------------------------------------------------------------- v2: MR placement (real desk + real wall) and persistent anchors
+  /** v2 MR flow: real headsets, or ?mr=1 in the emulator. Never in ?clean (the filmed v1 run keeps its layout). */
+  mrFlow(): boolean {
+    if (!this.inXR() || (CLEAN_CAPTURE && !MR_FORCED)) return false;
+    if (IS_DEMO && !MR_FORCED) return false;
+    return MR_FORCED || !(window as unknown as { IWER_DEVICE?: unknown }).IWER_DEVICE;
+  }
+  /** How the desk / wall were placed this session (shown on the header, read by tests/autoplay). */
+  mr: { phase: 'idle' | 'restore' | 'scan' | 'hit' | 'tap' | 'anchor' | 'done'; t: number; desk: string; wall: string; head?: Vector3; fwd?: Vector3; hit?: XRHitTestSource; hitReq?: boolean; tapped?: boolean; vr?: boolean; noPlanes?: boolean } = { phase: 'idle', t: 0, desk: '', wall: '' };
+  private replaceBtn?: Btn; private placeHint!: Label;
+  private session(): XRSession | null { return this.world.renderer.xr.getSession(); }
+  private detach(e: Entity, o: Group): void {
+    if (e.hasComponent(XRAnchor)) e.removeComponent(XRAnchor);
+    if (o.parent !== this.world.scene) this.world.scene.attach(o);
+  }
+  /** Session start: restore last session's anchored desk + wall, else scan for a real table + wall. */
+  private mrBegin(): void {
+    this.detach(this.deskE, this.desk); this.detach(this.wallE, this.wall);
+    this.wallMode = 'fallback'; this.restored = false;
+    const cam = this.headCam(); cam.updateMatrixWorld();
+    const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(this.q)); fwd.y = 0; fwd.normalize();
+    this.mr.head = head; this.mr.fwd = fwd;
+    this.tray.mesh.visible = true; this.placeHint.mesh.visible = false;
+    this.layoutAround(head, fwd); // provisional, head-relative, until a surface is found
+    this.mr.noPlanes = !!this.mr.vr || NO_PLANES;
+    if (this.mr.vr) { this.mr.phase = 'scan'; this.deskFound(this.desk.position.clone(), 'VR room'); this.placed = true; return; }
+    const saved = localStorage.getItem(MR_KEY);
+    this.mr = { ...this.mr, phase: saved && !this.mr.vr ? 'restore' : 'scan', t: 0, desk: '', wall: '', tapped: false };
+    if (this.mr.phase === 'restore') { this.deskE.addComponent(XRAnchor); this.wallE.addComponent(XRAnchor); }
+    this.placed = true; this.redrawHeader();
+  }
+  private layoutAround(head: Vector3, fwd: Vector3): void {
+    const yaw = Math.atan2(-fwd.x, -fwd.z);
+    this.desk.position.copy(head).addScaledVector(fwd, DESK_FWD); this.desk.position.y -= DESK_DOWN;
+    this.desk.rotation.set(0, yaw, 0);
+    this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02; this.wall.rotation.set(0, yaw, 0);
+    this.layoutSides(head, yaw);
+  }
+  private layoutSides(head: Vector3, yaw: number): void {
+    const side = (g: Group, deg: number, dist: number, dy: number) => {
+      const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
+      g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
+    };
+    side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17);
+  }
+  /** Nearest detected table-height horizontal plane in front of the head: the desk centre just inside its near edge. */
+  private findTable(): Vector3 | null {
+    if (this.mr.noPlanes) return null;
+    const head = this.mr.head!, fwd = this.mr.fwd!; let best: Vector3 | null = null; let bestD = 1e9;
+    for (const e of this.queries.planes.entities) {
+      const pl = e.getValue(XRPlane, '_plane') as { orientation?: string; polygon?: DOMPointReadOnly[] } | undefined;
+      const o = e.object3D; if (!o || pl?.orientation !== 'horizontal' || !pl.polygon?.length) continue;
+      o.updateMatrixWorld();
+      const c = new Vector3().setFromMatrixPosition(o.matrixWorld);
+      if (c.y < 0.5 || c.y > 1.15 || head.y - c.y < 0.15) continue; // table height, below the eyes (not floor / ceiling)
+      const pts = pl.polygon.map((q) => new Vector3(q.x, 0, q.z).applyMatrix4(o.matrixWorld));
+      const fl = new Vector3(head.x, c.y, head.z);
+      let near = pts[0];
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length]; const ab = b.clone().sub(a);
+        const t = Math.max(0, Math.min(1, fl.clone().sub(a).dot(ab) / Math.max(1e-6, ab.lengthSq())));
+        const q = a.clone().addScaledVector(ab, t); if (q.distanceTo(fl) < near.distanceTo(fl)) near = q;
+      }
+      const inside = this.inPoly(fl, pts);
+      const d = inside ? 0 : near.distanceTo(fl);
+      const dir = c.clone().sub(fl); dir.y = 0;
+      if (d > 0.9 || dir.lengthSq() < 1e-6 || dir.normalize().dot(fwd) < 0.3) continue;
+      // desk centre: ~DESK_FWD (40 cm) ahead of the user, but never outside the surface's near edge
+      const at = inside ? fl.clone().addScaledVector(fwd, DESK_FWD) : near.clone().addScaledVector(dir, 0.18); at.y = c.y + 0.004;
+      if (d < bestD) { bestD = d; best = at; }
+    }
+    return best;
+  }
+  private inPoly(p: Vector3, pts: Vector3[]): boolean {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j];
+      if ((a.z > p.z) !== (b.z > p.z) && p.x < ((b.x - a.x) * (p.z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+    }
+    return inside;
+  }
+  /** Fallback 2: hit-test a ray from the head, ~30° down, for a table-height surface within reach. */
+  private hitTestTable(): Vector3 | null {
+    if (this.mr.noPlanes) return null;
+    const ses = this.session(); const frame = this.world.renderer.xr.getFrame(); const ref = this.world.renderer.xr.getReferenceSpace();
+    if (!ses || !frame || !ref) return null;
+    if (!this.mr.hitReq) {
+      this.mr.hitReq = true;
+      void ses.requestReferenceSpace('viewer').then((viewer) => ses.requestHitTestSource?.({ space: viewer, offsetRay: new XRRay({ x: 0, y: 0, z: 0 }, { x: 0, y: -0.58, z: -1 }) }))
+        .then((src) => { if (src) this.mr.hit = src; }).catch(() => { /* no hit-test here → tap to place */ });
+      return null;
+    }
+    if (!this.mr.hit) return null;
+    for (const r of frame.getHitTestResults(this.mr.hit)) {
+      const pose = r.getPose(ref); if (!pose) continue;
+      const p = new Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+      const h = this.mr.head!; const flat = Math.hypot(p.x - h.x, p.z - h.z);
+      if (p.y > 0.5 && p.y < 1.15 && flat < 0.75) { p.y += 0.004; return p; }
+    }
+    return null;
+  }
+  private deskFound(at: Vector3, how: string): void {
+    const head = this.mr.head!, fwd = this.mr.fwd!; const yaw = Math.atan2(-fwd.x, -fwd.z);
+    this.desk.position.copy(at); this.desk.rotation.set(0, yaw, 0);
+    this.mr.desk = how; this.placeHint.mesh.visible = false;
+    // passthrough matters: on a real surface the paper tray goes away and the cards lie on the real desk
+    this.tray.mesh.visible = how === 'tap' || !!this.mr.vr;
+    if (!this.mr.noPlanes) for (const pe of this.queries.planes.entities) this.tryWall(pe, true);
+    if (this.wallMode !== 'detected') { this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02; this.wall.rotation.set(0, yaw, 0); }
+    this.mr.wall = this.wallMode === 'detected' ? 'wall plane' : `${WALL_FWD} m ahead`;
+    this.layoutSides(head, yaw);
+    if (this.mr.vr) { const f = this.vrRoom.getObjectByName('vr-floor'); if (f) f.position.y = -this.desk.position.y; this.mr.phase = 'done'; this.redrawHeader(); return; }
+    this.deskE.addComponent(XRAnchor); this.wallE.addComponent(XRAnchor);
+    this.mr.phase = 'anchor'; this.mr.t = 0; this.redrawHeader();
+  }
+  private poseOf(o: Group): number[] { return [...o.position.toArray(), ...o.quaternion.toArray()]; }
+  private setPose(o: Group, a: number[]): void { o.position.fromArray(a, 0); o.quaternion.fromArray(a, 3); }
+  /** Per-frame MR placement state machine. */
+  private mrStep(delta: number): void {
+    const m = this.mr; if (m.phase === 'idle' || m.phase === 'done') return;
+    m.t += delta;
+    const anchored = () => this.deskE.hasComponent(XRAnchor) && !!this.deskE.getValue(XRAnchor, 'attached') && !!this.wallE.getValue(XRAnchor, 'attached');
+    if (m.phase === 'restore') {
+      const saved = JSON.parse(localStorage.getItem(MR_KEY) ?? 'null') as { uuid: string; desk: number[]; wall: number[]; how: string; wall2: string; tray: boolean } | null;
+      const uuid = localStorage.getItem(ANCHOR_UUID_KEY);
+      // IWSDK deletes its UUID when restorePersistentAnchor fails, then makes a new one: a different UUID = a different origin
+      if (!saved || (m.t > 0.3 && uuid !== saved.uuid)) { this.mrForget('anchor not restored'); return; }
+      if (m.t < 1.2 || !anchored()) { if (m.t > 4) this.mrForget('anchor timeout'); return; }
+      this.setPose(this.desk, saved.desk); this.setPose(this.wall, saved.wall);
+      this.tray.mesh.visible = saved.tray; this.wallMode = 'detected'; this.restored = true;
+      m.desk = `restored (${saved.how})`; m.wall = `restored (${saved.wall2})`; m.phase = 'done';
+      this.desk.updateMatrixWorld(true); const dp = this.desk.getWorldPosition(new Vector3()); const q = this.desk.getWorldQuaternion(new Quaternion());
+      const f = new Vector3(0, 0, -1).applyQuaternion(q); f.y = 0; f.normalize();
+      const head = dp.clone().addScaledVector(f, -DESK_FWD); head.y = m.head!.y; this.layoutSides(head, Math.atan2(-f.x, -f.z));
+      this.redrawHeader(); return;
+    }
+    if (m.phase === 'scan') {
+      const t = this.findTable(); if (t) { this.deskFound(t, 'table plane'); return; }
+      if (m.t > 1.5) { m.phase = 'hit'; m.t = 0; this.redrawHeader(); }
+      return;
+    }
+    if (m.phase === 'hit') {
+      const t = this.hitTestTable(); if (t) { this.deskFound(t, 'hit-test'); return; }
+      if (m.t > 1.5) { m.phase = 'tap'; m.t = 0; m.tapped = false; this.showPlaceHint(); this.redrawHeader(); }
+      return;
+    }
+    if (m.phase === 'tap') {
+      // desk follows the gaze ~60 cm away (29° down) until a pinch / trigger sets it down
+      const cam = this.headCam(); cam.updateMatrixWorld();
+      const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
+      const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(this.q)); fwd.y = 0; fwd.normalize();
+      m.head = head; m.fwd = fwd;
+      const at = head.clone().addScaledVector(fwd, 0.6 * Math.cos(0.5)); at.y = head.y - 0.6 * Math.sin(0.5);
+      this.desk.position.lerp(at, 1 - Math.exp(-delta * 8)); this.desk.rotation.set(0, Math.atan2(-fwd.x, -fwd.z), 0);
+      if (m.tapped) this.deskFound(at, 'tap');
+      return;
+    }
+    if (m.phase === 'anchor') {
+      const uuid = localStorage.getItem(ANCHOR_UUID_KEY);
+      if (anchored() && uuid) {
+        localStorage.setItem(MR_KEY, JSON.stringify({ uuid, desk: this.poseOf(this.desk), wall: this.poseOf(this.wall), how: m.desk, wall2: m.wall, tray: this.tray.mesh.visible }));
+        m.phase = 'done'; this.redrawHeader();
+      } else if (m.t > 5) { m.phase = 'done'; m.wall += ' · not saved (no persistent anchor)'; this.redrawHeader(); }
+    }
+  }
+  private mrForget(why: string): void {
+    localStorage.removeItem(MR_KEY); console.log('[MD] re-place:', why);
+    this.detach(this.deskE, this.desk); this.detach(this.wallE, this.wall); this.wallMode = 'fallback'; this.restored = false;
+    this.layoutAround(this.mr.head!, this.mr.fwd!);
+    this.mr.phase = 'scan'; this.mr.t = 0; this.redrawHeader();
+  }
+  /** "📍 Re-place": forget the saved spot and place again from where the user is now. */
+  replace(): void {
+    if (!this.mrFlow()) return;
+    localStorage.removeItem(MR_KEY); sfx.pick();
+    this.mrBegin();
+  }
+  /** Enter XR: passthrough (immersive-ar) when the device supports it, else the VR-room fallback. */
+  async enterXR(): Promise<void> {
+    let ar = !FORCE_VR;
+    try { if (ar && navigator.xr) ar = await navigator.xr.isSessionSupported('immersive-ar'); } catch { ar = false; }
+    this.mr.vr = !ar;
+    this.world.launchXR(ar ? undefined : { sessionMode: SessionMode.ImmersiveVR });
+  }
+  /** Test/autoplay hook: confirm the tap-to-place step (what a pinch does). */
+  tapPlace(): void { if (this.mr.phase === 'tap') this.mr.tapped = true; }
+  mrStatus(): string {
+    const m = this.mr;
+    if (m.vr) return '🖥 VR room (no passthrough on this device)';
+    if (m.phase === 'restore') return '📍 finding your saved desk…';
+    if (m.phase === 'scan' || m.phase === 'hit') return '📍 looking for your desk…';
+    if (m.phase === 'tap') return '📍 pinch to set your desk';
+    return m.desk.startsWith('restored') ? '📍 desk + wall restored in the same spot' : `📍 desk: ${m.desk} · wall: ${m.wall}`;
+  }
+  private showPlaceHint(): void {
+    this.placeHint.mesh.visible = true;
+    this.placeHint.draw((g, W, H) => { panel(g, W, H, C.sageDeep, undefined, 1); text(g, '📍 Look where you want your desk, then pinch', W / 2, H / 2, 18, '#fff', 600, W - 30, 'center'); });
+  }
+
+  // ---------------------------------------------------------------- v2: Wind-down (evening ritual: recap → roll each unfinished task → close the day)
+  wind: { step: number; list: string[]; kept: string[]; dropped: string[] } | null = null;
+  private windPanel!: Label; private windE!: Entity; private windBtns: Btn[] = [];
+  private buildWindDown(): void {
+    this.windPanel = new Label(0.5, 0.3); this.windPanel.mesh.visible = false;
+    (this.windPanel.mesh.material as MeshBasicMaterial).depthTest = false; this.windPanel.mesh.renderOrder = 10;
+    this.windE = this.world.createTransformEntity(this.windPanel.mesh, this.deskE);
+    const a = this.button('a', 0.16, () => this.windChoice(true), this.windE), b = this.button('b', 0.16, () => this.windChoice(false), this.windE);
+    a.label.mesh.position.set(-0.09, -0.115, 0.004); b.label.mesh.position.set(0.09, -0.115, 0.004);
+    for (const x of [a, b]) { (x.label.mesh.material as MeshBasicMaterial).depthTest = false; x.label.mesh.renderOrder = 11; }
+    this.windBtns = [a, b];
+  }
+  /** Unfinished = scheduled today but not done, plus anything already parked for tomorrow. Real state only. */
+  private unfinished(): string[] {
+    const s = this.s; const seen = new Set<string>();
+    return [...s.timeline, ...s.tomorrow].filter((id) => s.tasks[id] && !s.tasks[id].done && !seen.has(id) && (seen.add(id), true));
+  }
+  openWindDown(): void {
+    if (this.focus) this.endFocus(false); this.summary.mesh.visible = false; this.pending = null;
+    this.wind = { step: 0, list: this.unfinished(), kept: [], dropped: [] };
+    this.windPanel.mesh.visible = true; this.placeInView(this.windPanel.mesh, 0.55, -0.14); sfx.pick();
+    document.body.dataset.wind = '0'; this.drawWind();
+  }
+  /** A = Next / → Tomorrow / ✓ Close day · B = Close / ✕ Drop / ← Back. 👍 / 👎 do the same. */
+  windChoice(a: boolean): void {
+    const w = this.wind; if (!w) return;
+    const n = w.list.length;
+    if (w.step === 0) { if (!a) { this.closeWind(); return; } w.step = 1; }
+    else if (w.step <= n) { (a ? w.kept : w.dropped).push(w.list[w.step - 1]); a ? sfx.yes() : sfx.skip(); w.step++; }
+    else { if (a) { this.closeDay(); return; } w.step = 0; w.kept = []; w.dropped = []; }
+    document.body.dataset.wind = String(w.step); this.drawWind();
+  }
+  private closeWind(): void { this.wind = null; this.windPanel.mesh.visible = false; delete document.body.dataset.wind; }
+  private closeDay(): void {
+    const w = this.wind!; const s = this.s;
+    for (const id of w.dropped) {
+      s.timeline = s.timeline.filter((x) => x !== id); s.tomorrow = s.tomorrow.filter((x) => x !== id); s.stack = s.stack.filter((x) => x !== id);
+      delete s.tasks[id];
+    }
+    s.carry = [...w.kept];
+    const before = s.streak; completeDay(s); this.streakAnim = { t: 9, from: before, to: s.streak }; save(s); sfx.done();
+    this.closeWind(); this.syncItems();
+    this.agentMsg = `🌙 Day closed. ${w.kept.length ? `Tomorrow starts with ${w.kept.length} task${w.kept.length > 1 ? 's' : ''}.` : 'Nothing carried over.'} ${s.streak}-day streak.`;
+    document.body.dataset.wind = 'closed'; this.redrawAll();
+  }
+  private drawWind(): void {
+    const w = this.wind; if (!w) return; const s = this.s; const n = w.list.length;
+    const [la, lb] = w.step === 0 ? ['Next →', '✕ Close'] : w.step <= n ? ['→ Tomorrow', '✕ Drop'] : ['✓ Close day', '← Back'];
+    this.windBtns.forEach((b, i) => {
+      const t = i ? lb : la; b.label.mesh.userData.btn = t;
+      b.label.draw((g, W, H) => { panel(g, W, H, i ? '#7a837d' : C.sageDeep, undefined, 1); text(g, t, W / 2, H / 2, 21, '#fff', 600, W - 16, 'center'); });
+    });
+    this.windPanel.draw((g, W, H) => {
+      panel(g, W, H, C.paper, '#5e6a7a', 1);
+      text(g, '🌙 Wind down', 32, 34, 24, C.ink, 700);
+      text(g, w.step === 0 ? 'step 1 · today' : w.step <= n ? `step 2 · roll over ${w.step} of ${n}` : 'step 3 · tomorrow', W - 28, 34, 15, C.mute, 600, W, 'right');
+      if (w.step === 0) {
+        const sched = s.timeline.filter((id) => s.tasks[id]); const done = sched.filter((id) => s.tasks[id].done).length;
+        const lines: [string, string][] = [
+          ['Done today', `${done} of ${sched.length} scheduled`],
+          ['Focus time', dur(s.focusMinutes ?? 0)],
+          ['Unfinished', n ? `${n} task${n > 1 ? 's' : ''}` : 'none'],
+        ];
+        lines.forEach(([k, v], i) => { text(g, k, 32, 84 + i * 32, 19, C.mute, 600); text(g, v, 190, 84 + i * 32, 19, C.ink, 700, W - 210); });
+        para(g, n ? 'Next: decide, one by one, what rolls into tomorrow.' : 'Everything scheduled is done.', 32, 182, 16, W - 60, C.sageDeep);
+      } else if (w.step <= n) {
+        const t = s.tasks[w.list[w.step - 1]];
+        text(g, t.title, 32, 96, 28, C.ink, 700, W - 60);
+        text(g, `${dur(t.minutes)} · ${['', 'must do', 'should do', 'nice to have'][t.priority]}`, 32, 132, 18, C.sageDeep, 600, W - 60);
+        text(g, 'Roll into tomorrow?  👍 keep · 👎 drop', 32, 176, 17, C.mute, 500, W - 60);
+      } else {
+        const titles = w.kept.map((id) => s.tasks[id]?.title).filter(Boolean);
+        text(g, titles.length ? 'Tomorrow starts with:' : 'Tomorrow starts fresh.', 32, 84, 19, C.ink, 700, W - 60);
+        titles.slice(0, 4).forEach((t, i) => text(g, `${i + 1}. ${t}`, 44, 116 + i * 26, 18, C.ink, 500, W - 80));
+        if (titles.length > 4) text(g, `+${titles.length - 4} more`, 44, 116 + 4 * 26, 16, C.mute, 500);
+        if (w.dropped.length) text(g, `Dropped: ${w.dropped.length}`, W - 28, 84, 16, C.mute, 500, W, 'right');
+      }
+    });
   }
 
   // ---------------------------------------------------------------- items
@@ -308,7 +635,7 @@ export class MorningDeskSystem extends createSystem({
       entity.addComponent(RayInteractable);
       // spawn split parts where the parent was, so the split is visible
       const parent = !this.s.tasks[id].partOf ? undefined : [...this.items.values()].find((x) => this.s.tasks[id].partOf === x.id || id.startsWith(`${x.id}~`));
-      const start = parent?.label.mesh.position ?? this.desk.position;
+      const start = parent?.label.mesh.position ?? this.desk.getWorldPosition(new Vector3());
       label.mesh.position.copy(start);
       this.items.set(id, { id, label, entity, place: '', drawnKey: '' });
     }
@@ -330,28 +657,28 @@ export class MorningDeskSystem extends createSystem({
       const sl = layout(s).slots[it.id]; const start = sl.start - s.dayStart;
       const w = Math.max(0.03, (sl.end - sl.start) * this.pxPerM() - 0.006);
       out.set(-TRACK_W / 2 + start * this.pxPerM() + w / 2 + 0.003, 0, 0.006);
-      this.wall.localToWorld(out); outQ.copy(this.wall.quaternion);
+      this.wall.localToWorld(out); this.wall.getWorldQuaternion(outQ);
       return { w, h: TRACK_H, visible: true };
     }
     if (place === 'tomorrow') {
       const i = s.tomorrow.indexOf(it.id);
-      out.set(-TRACK_W / 2 + 0.1 + i * 0.17, -0.37, 0.006); this.wall.localToWorld(out); outQ.copy(this.wall.quaternion);
+      out.set(-TRACK_W / 2 + 0.1 + i * 0.17, -0.37, 0.006); this.wall.localToWorld(out); this.wall.getWorldQuaternion(outQ);
       return { w: 0.16, h: 0.045, visible: true };
     }
     if (place === 'skipped') {
-      out.set(0.7, -0.2, 0); this.desk.localToWorld(out); outQ.copy(this.desk.quaternion);
+      out.set(0.7, -0.2, 0); this.desk.localToWorld(out); this.desk.getWorldQuaternion(outQ);
       return { w: CARD_W, h: CARD_H, visible: false };
     }
     const onDesk = s.stack.filter((id) => s.tasks[id].priority === 1);
     if (s.tasks[it.id].priority !== 1) {
       const j = s.stack.filter((id) => s.tasks[id].priority !== 1).indexOf(it.id);
-      out.set(-0.095 + (j % 2) * 0.19, 0.065 - Math.floor(j / 2) * 0.12, 0.004); this.right.localToWorld(out); outQ.copy(this.right.quaternion);
+      out.set(-0.095 + (j % 2) * 0.19, 0.065 - Math.floor(j / 2) * 0.12, 0.004); this.right.localToWorld(out); this.right.getWorldQuaternion(outQ);
       return { w: CARD_W, h: CARD_H, visible: true };
     }
     const i = onDesk.indexOf(it.id);
     const col = i % 3, row = Math.floor(i / 3);
     out.set(-0.17 + col * 0.165, 0.035 + row * 0.005, 0.07 - row * 0.1); this.desk.localToWorld(out);
-    outQ.copy(this.desk.quaternion).multiply(this.q.setFromAxisAngle(new Vector3(1, 0, 0), -1.05));
+    this.desk.getWorldQuaternion(outQ).multiply(this.q.setFromAxisAngle(new Vector3(1, 0, 0), -1.05));
     return { w: CARD_W, h: CARD_H, visible: true };
   }
   private drawItem(it: Item, place: string, w: number, h: number): void {
@@ -401,10 +728,10 @@ export class MorningDeskSystem extends createSystem({
   /** Where would a card released at world point p land on the wall? (head→card ray, so seated users can "aim" it). */
   private wallSlot(p: Vector3, strict = false): number | null {
     const cam = this.headCam(); const head = this.tmp.setFromMatrixPosition(cam.matrixWorld);
-    const n = new Vector3(0, 0, 1).applyQuaternion(this.wall.quaternion);
+    const n = new Vector3(0, 0, 1).applyQuaternion(this.wall.getWorldQuaternion(new Quaternion()));
     const dir = p.clone().sub(head).normalize();
     const denom = n.dot(dir); if (Math.abs(denom) < 1e-3) return null;
-    const t = n.dot(this.wall.position.clone().sub(head)) / denom; if (t <= 0) return null;
+    const t = n.dot(this.wall.getWorldPosition(new Vector3()).sub(head)) / denom; if (t <= 0) return null;
     const hit = this.wall.worldToLocal(head.clone().addScaledVector(dir, t));
     if (Math.abs(hit.y) > 0.16 || hit.x < -TRACK_W / 2 - 0.1 || hit.x > TRACK_W / 2 + 0.25) return null;
     if (strict && (Math.abs(hit.y) > 0.1 || Math.abs(hit.x) > TRACK_W / 2)) return null; // on the track itself, not its margin
@@ -438,7 +765,7 @@ export class MorningDeskSystem extends createSystem({
     } else if (Math.abs(lateralSpeed) > SWIPE_SPEED) {
       s.stack = strip(s.stack); s.timeline = strip(s.timeline); s.tomorrow = strip(s.tomorrow);
       s.skipped.push(id); sfx.skip(); this.tutEvent('skip');
-    } else if (this.placeOf(id) !== 'stack' && p.distanceTo(this.desk.position) < 0.35) {
+    } else if (this.placeOf(id) !== 'stack' && p.distanceTo(this.desk.getWorldPosition(new Vector3())) < 0.35) {
       s.timeline = strip(s.timeline); s.tomorrow = strip(s.tomorrow); s.stack.push(id); sfx.drop();
     }
     this.commit();
@@ -474,48 +801,13 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- streak, tutorial, details
-  private buildPlant(): void {
-    const pot = new Mesh(new CylinderGeometry(0.03, 0.022, 0.045, 20), new MeshStandardMaterial({ color: C.clay, roughness: 0.9 }));
-    pot.position.y = 0.0225; this.plant.add(pot);
-    this.plant.position.set(0.27, 0, 0.0); this.desk.add(this.plant);
-  }
-  /** Plant growth stages: 0 seed · 1-2 sprout · 3-5 leafy · 6-9 bud · 10+ flower. */
-  private growPlant(): void {
-    while (this.plant.children.length > 1) this.plant.remove(this.plant.children[1]);
-    const n = Math.min(this.s.streak, 12);
-    const mat = (c: string, r = 0.8) => new MeshStandardMaterial({ color: c, roughness: r });
-    const soil = new Mesh(new CylinderGeometry(0.027, 0.027, 0.004, 20), mat('#6b5544', 1)); soil.position.y = 0.045; this.plant.add(soil);
-    if (n === 0) {
-      const seed = new Mesh(new SphereGeometry(0.006, 10, 8), mat('#a98a62')); seed.position.y = 0.049; seed.scale.y = 0.6; this.plant.add(seed);
-    } else {
-      const stemH = 0.012 + n * 0.007;
-      const stem = new Mesh(new CylinderGeometry(0.0018, 0.0028, stemH, 6), mat(C.sageDeep)); stem.position.y = 0.047 + stemH / 2; this.plant.add(stem);
-      const leaves = n <= 2 ? 2 : Math.min(2 + n, 11);
-      for (let i = 0; i < leaves; i++) {
-        const leaf = new Mesh(new SphereGeometry(0.012, 12, 8), mat(i >= leaves - 2 ? '#b8d8a8' : C.sage));
-        const a = i * 2.4, y = 0.05 + ((i + 1) / (leaves + 1)) * stemH, sz = n <= 2 ? 0.6 : 0.8 + 0.3 * (1 - i / leaves);
-        leaf.scale.set(1.3 * sz, 0.4 * sz, 0.75 * sz); leaf.position.set(Math.cos(a) * 0.013, y, Math.sin(a) * 0.013); leaf.rotation.set(0, -a, 0.35);
-        this.plant.add(leaf);
-      }
-      if (n >= 6) {
-        const top = 0.047 + stemH;
-        if (n < 10) { const bud = new Mesh(new SphereGeometry(0.007, 12, 10), mat('#e9b8a8')); bud.position.y = top + 0.004; bud.scale.y = 1.4; this.plant.add(bud); }
-        else {
-          for (let i = 0; i < 6; i++) {
-            const pet = new Mesh(new SphereGeometry(0.007, 10, 8), mat('#f2c6b4')); const a = (i / 6) * Math.PI * 2;
-            pet.scale.set(1.4, 0.35, 0.8); pet.position.set(Math.cos(a) * 0.009, top + 0.004, Math.sin(a) * 0.009); pet.rotation.y = -a; this.plant.add(pet);
-          }
-          const c = new Mesh(new SphereGeometry(0.004, 10, 8), mat(C.warn)); c.position.y = top + 0.006; this.plant.add(c);
-        }
-      }
-    }
-    this.plantGrow = 0;
-    const stage = n === 0 ? 'seed' : n <= 2 ? 'sprout' : n <= 5 ? 'leafy' : n <= 9 ? 'budding' : 'in bloom';
-    this.streakLabel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, `🌱 ${this.s.streak}-day streak · ${stage}`, W / 2, H / 2, 15, C.sageDeep, 600, W - 10, 'center'); });
+  /** Streak is a plain day count (v2: no plant / growth reward). */
+  private drawStreak(): void {
+    this.streakLabel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, `${this.s.streak}-day streak`, W / 2, H / 2, 15, C.sageDeep, 600, W - 10, 'center'); });
   }
   private finishDay(): void {
-    const before = this.s.streak; completeDay(this.s); this.streakAnim = { t: 0, from: before, to: this.s.streak }; save(this.s); this.growPlant(); sfx.done();
-    this.agentMsg = `Day closed. ${this.s.streak}-day streak, your plant grew. See you tomorrow.`; this.redrawAgent();
+    const before = this.s.streak; completeDay(this.s); this.streakAnim = { t: 0, from: before, to: this.s.streak }; save(this.s); this.drawStreak(); sfx.done();
+    this.agentMsg = `Day closed. ${this.s.streak}-day streak. See you tomorrow.`; this.redrawAgent();
     this.showSummary();
   }
   /** Spawn a panel in front of the viewer's current head pose: `dist` ahead (level gaze), `drop` below eye height, facing the head. */
@@ -547,6 +839,7 @@ export class MorningDeskSystem extends createSystem({
   }
   // ---------------------------------------------------------------- Focus Mode
   private onThumb(dir: number): void {
+    if (this.wind) { this.windChoice(dir > 0); return; }
     if (this.focus) { if (dir > 0) this.endFocus(true); return; } // 👍 = done (early or at the bell)
     this.decide(dir > 0);
   }
@@ -653,7 +946,7 @@ export class MorningDeskSystem extends createSystem({
       // streak moment: bar grows from yesterday's streak to today's (real state)
       const a = this.streakAnim, v = a.from + (a.to - a.from) * k, max = Math.max(7, a.to + 2);
       const ys = H - 92;
-      text(g, `🌱 Streak ${k >= 1 ? a.to : a.from}${k >= 1 && a.to > a.from ? ` (+${a.to - a.from})` : ''} days`, 36, ys, 18, C.sageDeep, 700);
+      text(g, `Streak ${k >= 1 ? a.to : a.from}${k >= 1 && a.to > a.from ? ` (+${a.to - a.from})` : ''} days`, 36, ys, 18, C.sageDeep, 700);
       g.fillStyle = '#d8d2c4'; g.beginPath(); g.roundRect(220, ys - 7, W - 260, 14, 7); g.fill();
       g.fillStyle = C.sage; g.beginPath(); g.roundRect(220, ys - 7, (W - 260) * Math.min(1, v / max), 14, 7); g.fill();
     });
@@ -704,7 +997,7 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- drawing
-  private redrawAll(): void { this.redrawHeader(); this.redrawAgent(); this.growPlant(); this.redrawMeetings(); this.redrawBoards(); }
+  private redrawAll(): void { this.redrawHeader(); this.redrawAgent(); this.drawStreak(); this.redrawMeetings(); this.redrawBoards(); }
   private redrawBoards(): void {
     const s = this.s; const ms = s.meetings ?? []; const sl = layout(s).slots;
     const clash = new Set(Object.values(sl).map((x) => x.clash?.id).filter(Boolean));
@@ -751,7 +1044,7 @@ export class MorningDeskSystem extends createSystem({
     this.header.draw((g, W, H) => {
       panel(g, W, H, C.paper, over ? C.warn : C.sage);
       text(g, `Today  ${fmt(this.s.dayStart)}–${fmt(this.s.dayStart + av)}`, 34, H * 0.34, 26, C.ink, 700);
-      if (!CLEAN_CAPTURE || this.wallMode === 'detected') text(g, this.wallMode === 'detected' ? (this.restored ? '📍 restored on your wall' : '📍 pinned to your wall') : `📍 no wall found: timeline placed ${WALL_FWD} m ahead`, 34, H * 0.74, 17, C.mute, 500, W * 0.55);
+      if (!CLEAN_CAPTURE || this.wallMode === 'detected') text(g, this.mrFlow() && this.mr.phase !== 'idle' ? this.mrStatus() : this.wallMode === 'detected' ? (this.restored ? '📍 restored on your wall' : '📍 pinned to your wall') : `📍 no wall found: timeline placed ${WALL_FWD} m ahead`, 34, H * 0.74, 17, C.mute, 500, W * 0.55);
       text(g, over ? `⚠ ${dur(tot)} planned / ${dur(av)} free` : `${dur(tot)} / ${dur(av)}`, W - 30, H / 2, 24, over ? '#b9772e' : C.sageDeep, 700, W, 'right');
     });
   }
@@ -800,10 +1093,11 @@ export class MorningDeskSystem extends createSystem({
       const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE;
       const hq = new URLSearchParams(location.search);
       if (iwer && hq.has('hands') && !hq.has('autoplay')) iwer.primaryInputMode = 'hand';
-      this.world.launchXR();
+      void this.enterXR();
     });
     bind('btn-plan', () => this.runAgent(true));
-    bind('btn-done', () => this.finishDay());
+    bind('btn-done', () => (WIND_DOWN ? this.openWindDown() : this.finishDay()));
+    if (WIND_DOWN) { const el = document.getElementById('btn-done'); if (el) el.textContent = '🌙 Wind down'; }
     bind('btn-tutorial', () => this.startTutorial());
     bind('btn-demo', () => this.reset(true));
   }
@@ -861,7 +1155,7 @@ export class MorningDeskSystem extends createSystem({
     // loose flick (any speed): whole drag ends >120 px mostly sideways, or >=15 cm sideways in world, and not on the timeline
     const tx = e.clientX - md.px[0].x, ty = e.clientY - md.px[0].y;
     const endP = this.items.get(md.id)?.label.mesh.position;
-    const side = new Vector3(1, 0, 0).applyQuaternion(this.desk.quaternion);
+    const side = new Vector3(1, 0, 0).applyQuaternion(this.desk.getWorldQuaternion(new Quaternion()));
     const worldSide = endP ? Math.abs(endP.clone().sub(d.p0).dot(side)) : 0;
     const offTimeline = !endP || this.wallSlot(endP, true) === null;
     const loose = offTimeline && Math.abs(tx) > 1.5 * Math.abs(ty) && (Math.abs(tx) > 120 || worldSide >= 0.15);
@@ -879,7 +1173,7 @@ export class MorningDeskSystem extends createSystem({
     const it = this.items.get(d.id); if (!it) return;
     const p = it.label.mesh.position.clone();
     const b = d.hist[d.hist.length - 1];
-    const right = new Vector3(1, 0, 0).applyQuaternion(this.desk.quaternion);
+    const right = new Vector3(1, 0, 0).applyQuaternion(this.desk.getWorldQuaternion(new Quaternion()));
     // flick = fast sideways motion at the end of the drag: peak sample speed, or >=8 cm sideways within the last 350 ms
     let lateral = 0;
     for (let i = 1; i < d.hist.length; i++) {
@@ -923,6 +1217,7 @@ export class MorningDeskSystem extends createSystem({
     else if (this.thumb.t >= 0 || dir === 0) this.thumb = { dir, t: 0 };
   }
   private persistWall(): void {
+    if (this.mrFlow()) return; // v2 MR flow persists desk + wall in mrStep
     if (!this.wallE.hasComponent(XRAnchor) || !this.wallE.getValue(XRAnchor, 'attached')) return;
     if (this.restoreWall) {
       const [x, y, z, qx, qy, qz, qw] = this.restoreWall; this.restoreWall = null;
@@ -969,21 +1264,19 @@ export class MorningDeskSystem extends createSystem({
     // details card: soft scale-in
     if (this.detail.mesh.visible) { const d = this.detail.mesh.scale.x; this.detail.mesh.scale.setScalar(d + (1 - d) * k); }
     if (!this.detailId) this.detail.mesh.visible = false;
-    if ((this.pending || this.focus) && this.inXR()) this.detectThumbs(delta);
+    if ((this.pending || this.focus || this.wind) && this.inXR()) this.detectThumbs(delta);
     this.updateFocus(delta);
     if (this.sumDraw && this.summary.mesh.visible && this.streakAnim.t < 3.6) {
       const p0 = Math.floor(this.streakAnim.t * 12); this.streakAnim.t += delta;
       if (Math.floor(this.streakAnim.t * 12) !== p0) this.sumDraw(Math.min(1, Math.max(0, (this.streakAnim.t - 0.6) / 2.4)));
     }
     this.persistWall();
+    this.mrStep(delta);
+    if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.mr.vr;
     // agent acts on its own after a short beat
     if (this.agentTimer > 0) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }
     // tutorial
     if (this.tutorial.mesh.visible) { const t = this.tutorial.mesh.scale.x; this.tutorial.mesh.scale.setScalar(t + (1 - t) * k); }
-    // plant breathes / grows in
-    this.plantGrow = Math.min(1, this.plantGrow + delta * 1.5);
-    const sc = 0.6 + 0.4 * this.plantGrow + Math.sin(performance.now() / 1400) * 0.015;
-    this.plant.scale.setScalar(sc);
     // the level root marks children matrixAutoUpdate=false; our objects move every frame, so keep them live
     const live = (o: { matrixAutoUpdate: boolean; children: unknown[] }) => { o.matrixAutoUpdate = true; for (const c of o.children) live(c as typeof o); };
     live(this.desk); live(this.wall); live(this.left); live(this.right); for (const it of this.items.values()) it.label.mesh.matrixAutoUpdate = true;

@@ -12,6 +12,10 @@ import { BackSide, MeshBasicMaterial } from '@iwsdk/core';
 const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
 /** ?clean=1 video capture: hides the fallback-wall note (see clean.ts for the emulator chrome). */
 const CLEAN_CAPTURE = new URLSearchParams(location.search).has('clean');
+/** v2: ?mr=1 forces the MR flow in the IWER emulator (real headsets always use it, except ?demo / ?clean). */
+const MR_FORCED = new URLSearchParams(location.search).has('mr');
+const MR_KEY = 'morning-desk.mr.v2';               // { uuid, desk pose, wall pose } relative to IWSDK's persistent anchor
+const ANCHOR_UUID_KEY = 'iwsdk_scene_anchor_uuid'; // IWSDK SceneUnderstandingSystem's persistent anchor UUID
 
 // ---- layout constants (metres). Seated, ~0.6 m reach, key UI within ~30° of gaze centre.
 const DESK_FWD = 0.4, DESK_DOWN = 0.26;      // card spread in easy reach
@@ -40,6 +44,7 @@ export class MorningDeskSystem extends createSystem({
   private deskE!: Entity; private wallE!: Entity;
   private wall = new Group();
   private header!: Label;
+  private tray = new Label(0.62, 0.3);
   private agentPanel!: Label;
   private detail!: Label;
   private tip!: Label; private tipId = '';
@@ -48,7 +53,6 @@ export class MorningDeskSystem extends createSystem({
   private restoreWall: number[] | null = null; private wallSaved = false;
   private tutorial!: Label;
   private marker!: Mesh;
-  private plant = new Group();
   private streakLabel!: Label;
   private yesBtn!: Btn; private noBtn!: Btn;
   private pending: PlanChange | null = null;
@@ -66,7 +70,6 @@ export class MorningDeskSystem extends createSystem({
   private mouseDrag: { id: string; depth: number; px: { t: number; x: number; y: number }[]; maxPx: number } | null = null;
   private tmp = new Vector3(); private tmp2 = new Vector3(); private q = new Quaternion();
   private detailId = '';
-  private plantGrow = 0;
   private lastDomPress = 0;
   private meetingLabels: Label[] = [];
   private deskRow: Mesh[] = [];
@@ -99,14 +102,13 @@ export class MorningDeskSystem extends createSystem({
     this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag to plan', 30, H / 2, 20, C.ink, 700, W - 40); });
     this.progress = new Label(0.7, 0.08); this.progress.mesh.position.set(0, 0.44, -0.25); this.wall.add(this.progress.mesh);
 
-    // Desk surface (soft paper tray) + plant + streak.
-    const tray = new Label(0.62, 0.3);
+    // Desk surface (soft paper tray) + streak.
+    const tray = this.tray;
     tray.draw((g, W, H) => panel(g, W, H, '#e9e2d3', undefined, 0.55));
     tray.mesh.rotation.x = -Math.PI / 2; tray.mesh.position.set(0, -0.005, 0);
     this.desk.add(tray.mesh);
-    this.buildPlant();
     this.streakLabel = new Label(0.2, 0.034);
-    this.streakLabel.mesh.position.set(0.27, 0.012, 0.06); this.streakLabel.mesh.rotation.x = -1.0; this.desk.add(this.streakLabel.mesh); // tag in front of the pot, so the plant never hides it
+    this.streakLabel.mesh.position.set(0.27, 0.012, 0.06); this.streakLabel.mesh.rotation.x = -1.0; this.desk.add(this.streakLabel.mesh); 
 
     // Wall: header + track + agent panel.
     this.header = new Label(TRACK_W + 0.2, 0.09);
@@ -139,6 +141,13 @@ export class MorningDeskSystem extends createSystem({
       const b = this.button(t, 0.125, fn, this.deskE); this.deskRow.push(b.label.mesh);
       b.label.mesh.position.set(-0.24 + i * 0.135, 0.035, -0.17); b.label.mesh.rotation.x = -0.5;
     });
+
+    // v2 MR: tap-to-place hint + Re-place button (front-left of the desk, within reach)
+    this.placeHint = new Label(0.42, 0.06); this.placeHint.mesh.visible = false; this.placeHint.mesh.position.set(0, 0.12, -0.05); this.placeHint.mesh.rotation.x = -0.35; this.desk.add(this.placeHint.mesh);
+    if (!CLEAN_CAPTURE) {
+      this.replaceBtn = this.button('📍 Re-place', 0.12, () => this.replace(), this.deskE);
+      this.replaceBtn.label.mesh.position.set(-0.24, 0.02, 0.13); this.replaceBtn.label.mesh.rotation.x = -0.9; this.replaceBtn.label.mesh.visible = false;
+    }
 
     this.detail = new Label(0.3, 0.16); this.detail.mesh.visible = false;
     const de = this.world.createTransformEntity(this.detail.mesh, this.deskE);
@@ -194,7 +203,7 @@ export class MorningDeskSystem extends createSystem({
       if (this.inXR()) unlockAudio();
       // Focus Mode: when the timer asks "Done or more time?", any pinch adds 15 min (👍 = done)
       const ses = this.world.renderer.xr.getSession();
-      if (ses && !(ses as unknown as { mdHook?: boolean }).mdHook) { (ses as unknown as { mdHook?: boolean }).mdHook = true; ses.addEventListener('selectstart', () => { if (this.focus?.phase === 'ask') this.moreTime(); }); }
+      if (ses && !(ses as unknown as { mdHook?: boolean }).mdHook) { (ses as unknown as { mdHook?: boolean }).mdHook = true; ses.addEventListener('selectstart', () => { if (this.mr.phase === 'tap' && this.mr.t > 0.5) { this.mr.tapped = true; return; } if (this.focus?.phase === 'ask') this.moreTime(); }); }
       // hands-first: in the desktop emulator, switch to emulated hands (the devui can switch back)
       const iwer = (window as unknown as { IWER_DEVICE?: { primaryInputMode: string } }).IWER_DEVICE;
       // (input mode left to the IWER toolbar: setting it from code desynced the devui corner panels)
@@ -219,6 +228,7 @@ export class MorningDeskSystem extends createSystem({
     this.world.scene.background = flat ? new Color('#cfd8d2') : null;
   }
   private place(): void {
+    if (this.mrFlow()) { this.mrBegin(); return; }
     // in XR the rendered head is the XR camera; the flat camera's pose is stale there
     const cam = this.inXR() ? this.world.renderer.xr.getCamera() : this.world.camera; cam.updateWorldMatrix(true, false);
     const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
@@ -256,16 +266,17 @@ export class MorningDeskSystem extends createSystem({
     this.placed = true; this.redrawHeader();
   }
   /** Pin the timeline onto a detected vertical plane in front of the user, then anchor it. */
-  private tryWall(e: Entity): void {
+  private tryWall(e: Entity, force = false): void {
     if (this.wallMode === 'detected') return;
+    if (this.mrFlow() && !force) return; // v2 MR flow places the wall itself (after the desk)
     const plane = e.getValue(XRPlane, '_plane') as { orientation?: string } | undefined;
     const o = e.object3D; if (!o || plane?.orientation !== 'vertical') return;
     const cam = this.headCam();
-    const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
+    const head = force && this.mr.head ? this.mr.head.clone() : new Vector3().setFromMatrixPosition(cam.matrixWorld);
     const p = new Vector3().setFromMatrixPosition(o.matrixWorld);
     const n = new Vector3(0, 1, 0).applyQuaternion(o.getWorldQuaternion(new Quaternion()));
     const d = p.distanceTo(head);
-    const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new Quaternion()));
+    const fwd = force && this.mr.fwd ? this.mr.fwd.clone() : new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new Quaternion()));
     // seated: only walls within comfortable view distance; farther walls fall back to 1.1 m ahead
     if (d < 0.5 || d > 1.7 || fwd.dot(p.clone().sub(head).normalize()) < 0.7) return;
     if (n.dot(head.clone().sub(p)) < 0) n.negate();
@@ -275,9 +286,201 @@ export class MorningDeskSystem extends createSystem({
     this.wall.position.copy(hit).addScaledVector(n, 0.03);
     this.wall.rotation.set(0, Math.atan2(n.x, n.z), 0);
     this.wallMode = 'detected';
+    if (force) { this.redrawHeader(); return; } // MR flow anchors desk + wall together
     if (!this.wallE.hasComponent(XRAnchor)) this.wallE.addComponent(XRAnchor); // world-locked to the real wall
     this.wallSaved = false; // save pose relative to IWSDK's persistent anchor once attached
     this.redrawHeader();
+  }
+
+  // ---------------------------------------------------------------- v2: MR placement (real desk + real wall) and persistent anchors
+  /** v2 MR flow: real headsets, or ?mr=1 in the emulator. Never in ?clean (the filmed v1 run keeps its layout). */
+  mrFlow(): boolean {
+    if (!this.inXR() || CLEAN_CAPTURE) return false;
+    if (IS_DEMO && !MR_FORCED) return false;
+    return MR_FORCED || !(window as unknown as { IWER_DEVICE?: unknown }).IWER_DEVICE;
+  }
+  /** How the desk / wall were placed this session (shown on the header, read by tests/autoplay). */
+  mr: { phase: 'idle' | 'restore' | 'scan' | 'hit' | 'tap' | 'anchor' | 'done'; t: number; desk: string; wall: string; head?: Vector3; fwd?: Vector3; hit?: XRHitTestSource; hitReq?: boolean; tapped?: boolean; vr?: boolean; noPlanes?: boolean } = { phase: 'idle', t: 0, desk: '', wall: '' };
+  private replaceBtn?: Btn; private placeHint!: Label;
+  private session(): XRSession | null { return this.world.renderer.xr.getSession(); }
+  private detach(e: Entity, o: Group): void {
+    if (e.hasComponent(XRAnchor)) e.removeComponent(XRAnchor);
+    if (o.parent !== this.world.scene) this.world.scene.attach(o);
+  }
+  /** Session start: restore last session's anchored desk + wall, else scan for a real table + wall. */
+  private mrBegin(): void {
+    this.detach(this.deskE, this.desk); this.detach(this.wallE, this.wall);
+    this.wallMode = 'fallback'; this.restored = false;
+    const cam = this.headCam(); cam.updateMatrixWorld();
+    const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(this.q)); fwd.y = 0; fwd.normalize();
+    this.mr.head = head; this.mr.fwd = fwd;
+    this.tray.mesh.visible = true; this.placeHint.mesh.visible = false;
+    this.layoutAround(head, fwd); // provisional, head-relative, until a surface is found
+    const saved = localStorage.getItem(MR_KEY);
+    this.mr = { ...this.mr, phase: saved && !this.mr.vr ? 'restore' : 'scan', t: 0, desk: '', wall: '', tapped: false };
+    if (this.mr.phase === 'restore') { this.deskE.addComponent(XRAnchor); this.wallE.addComponent(XRAnchor); }
+    this.placed = true; this.redrawHeader();
+  }
+  private layoutAround(head: Vector3, fwd: Vector3): void {
+    const yaw = Math.atan2(-fwd.x, -fwd.z);
+    this.desk.position.copy(head).addScaledVector(fwd, DESK_FWD); this.desk.position.y -= DESK_DOWN;
+    this.desk.rotation.set(0, yaw, 0);
+    this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02; this.wall.rotation.set(0, yaw, 0);
+    this.layoutSides(head, yaw);
+  }
+  private layoutSides(head: Vector3, yaw: number): void {
+    const side = (g: Group, deg: number, dist: number, dy: number) => {
+      const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
+      g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
+    };
+    side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17);
+  }
+  /** Nearest detected table-height horizontal plane in front of the head: the desk centre just inside its near edge. */
+  private findTable(): Vector3 | null {
+    if (this.mr.noPlanes) return null;
+    const head = this.mr.head!, fwd = this.mr.fwd!; let best: Vector3 | null = null; let bestD = 1e9;
+    for (const e of this.queries.planes.entities) {
+      const pl = e.getValue(XRPlane, '_plane') as { orientation?: string; polygon?: DOMPointReadOnly[] } | undefined;
+      const o = e.object3D; if (!o || pl?.orientation !== 'horizontal' || !pl.polygon?.length) continue;
+      o.updateMatrixWorld();
+      const c = new Vector3().setFromMatrixPosition(o.matrixWorld);
+      if (c.y < 0.5 || c.y > 1.15 || head.y - c.y < 0.15) continue; // table height, below the eyes (not floor / ceiling)
+      const pts = pl.polygon.map((q) => new Vector3(q.x, 0, q.z).applyMatrix4(o.matrixWorld));
+      const fl = new Vector3(head.x, c.y, head.z);
+      let near = pts[0];
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length]; const ab = b.clone().sub(a);
+        const t = Math.max(0, Math.min(1, fl.clone().sub(a).dot(ab) / Math.max(1e-6, ab.lengthSq())));
+        const q = a.clone().addScaledVector(ab, t); if (q.distanceTo(fl) < near.distanceTo(fl)) near = q;
+      }
+      const inside = this.inPoly(fl, pts);
+      const d = inside ? 0 : near.distanceTo(fl);
+      const dir = c.clone().sub(fl); dir.y = 0;
+      if (d > 0.9 || dir.lengthSq() < 1e-6 || dir.normalize().dot(fwd) < 0.3) continue;
+      // desk centre: ~DESK_FWD (40 cm) ahead of the user, but never outside the surface's near edge
+      const at = inside ? fl.clone().addScaledVector(fwd, DESK_FWD) : near.clone().addScaledVector(dir, 0.18); at.y = c.y + 0.004;
+      if (d < bestD) { bestD = d; best = at; }
+    }
+    return best;
+  }
+  private inPoly(p: Vector3, pts: Vector3[]): boolean {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j];
+      if ((a.z > p.z) !== (b.z > p.z) && p.x < ((b.x - a.x) * (p.z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+    }
+    return inside;
+  }
+  /** Fallback 2: hit-test a ray from the head, ~30° down, for a table-height surface within reach. */
+  private hitTestTable(): Vector3 | null {
+    if (this.mr.noPlanes) return null;
+    const ses = this.session(); const frame = this.world.renderer.xr.getFrame(); const ref = this.world.renderer.xr.getReferenceSpace();
+    if (!ses || !frame || !ref) return null;
+    if (!this.mr.hitReq) {
+      this.mr.hitReq = true;
+      void ses.requestReferenceSpace('viewer').then((viewer) => ses.requestHitTestSource?.({ space: viewer, offsetRay: new XRRay({ x: 0, y: 0, z: 0 }, { x: 0, y: -0.58, z: -1 }) }))
+        .then((src) => { if (src) this.mr.hit = src; }).catch(() => { /* no hit-test here → tap to place */ });
+      return null;
+    }
+    if (!this.mr.hit) return null;
+    for (const r of frame.getHitTestResults(this.mr.hit)) {
+      const pose = r.getPose(ref); if (!pose) continue;
+      const p = new Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+      const h = this.mr.head!; const flat = Math.hypot(p.x - h.x, p.z - h.z);
+      if (p.y > 0.5 && p.y < 1.15 && flat < 0.75) { p.y += 0.004; return p; }
+    }
+    return null;
+  }
+  private deskFound(at: Vector3, how: string): void {
+    const head = this.mr.head!, fwd = this.mr.fwd!; const yaw = Math.atan2(-fwd.x, -fwd.z);
+    this.desk.position.copy(at); this.desk.rotation.set(0, yaw, 0);
+    this.mr.desk = how; this.placeHint.mesh.visible = false;
+    // passthrough matters: on a real surface the paper tray goes away and the cards lie on the real desk
+    this.tray.mesh.visible = how === 'tap' || !!this.mr.vr;
+    if (!this.mr.noPlanes) for (const pe of this.queries.planes.entities) this.tryWall(pe, true);
+    if (this.wallMode !== 'detected') { this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02; this.wall.rotation.set(0, yaw, 0); }
+    this.mr.wall = this.wallMode === 'detected' ? 'wall plane' : `${WALL_FWD} m ahead`;
+    this.layoutSides(head, yaw);
+    if (this.mr.vr) { this.mr.phase = 'done'; this.redrawHeader(); return; }
+    this.deskE.addComponent(XRAnchor); this.wallE.addComponent(XRAnchor);
+    this.mr.phase = 'anchor'; this.mr.t = 0; this.redrawHeader();
+  }
+  private poseOf(o: Group): number[] { return [...o.position.toArray(), ...o.quaternion.toArray()]; }
+  private setPose(o: Group, a: number[]): void { o.position.fromArray(a, 0); o.quaternion.fromArray(a, 3); }
+  /** Per-frame MR placement state machine. */
+  private mrStep(delta: number): void {
+    const m = this.mr; if (m.phase === 'idle' || m.phase === 'done') return;
+    m.t += delta;
+    const anchored = () => this.deskE.hasComponent(XRAnchor) && !!this.deskE.getValue(XRAnchor, 'attached') && !!this.wallE.getValue(XRAnchor, 'attached');
+    if (m.phase === 'restore') {
+      const saved = JSON.parse(localStorage.getItem(MR_KEY) ?? 'null') as { uuid: string; desk: number[]; wall: number[]; how: string; wall2: string; tray: boolean } | null;
+      const uuid = localStorage.getItem(ANCHOR_UUID_KEY);
+      // IWSDK deletes its UUID when restorePersistentAnchor fails, then makes a new one: a different UUID = a different origin
+      if (!saved || (m.t > 0.3 && uuid !== saved.uuid)) { this.mrForget('anchor not restored'); return; }
+      if (m.t < 1.2 || !anchored()) { if (m.t > 4) this.mrForget('anchor timeout'); return; }
+      this.setPose(this.desk, saved.desk); this.setPose(this.wall, saved.wall);
+      this.tray.mesh.visible = saved.tray; this.wallMode = 'detected'; this.restored = true;
+      m.desk = `restored (${saved.how})`; m.wall = `restored (${saved.wall2})`; m.phase = 'done';
+      this.desk.updateMatrixWorld(true); const dp = this.desk.getWorldPosition(new Vector3()); const q = this.desk.getWorldQuaternion(new Quaternion());
+      const f = new Vector3(0, 0, -1).applyQuaternion(q); f.y = 0; f.normalize();
+      const head = dp.clone().addScaledVector(f, -DESK_FWD); head.y = m.head!.y; this.layoutSides(head, Math.atan2(-f.x, -f.z));
+      this.redrawHeader(); return;
+    }
+    if (m.phase === 'scan') {
+      const t = this.findTable(); if (t) { this.deskFound(t, 'table plane'); return; }
+      if (m.t > 1.5) { m.phase = 'hit'; m.t = 0; this.redrawHeader(); }
+      return;
+    }
+    if (m.phase === 'hit') {
+      const t = this.hitTestTable(); if (t) { this.deskFound(t, 'hit-test'); return; }
+      if (m.t > 1.5) { m.phase = 'tap'; m.t = 0; m.tapped = false; this.showPlaceHint(); this.redrawHeader(); }
+      return;
+    }
+    if (m.phase === 'tap') {
+      // desk follows the gaze ~60 cm away (29° down) until a pinch / trigger sets it down
+      const cam = this.headCam(); cam.updateMatrixWorld();
+      const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
+      const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(this.q)); fwd.y = 0; fwd.normalize();
+      m.head = head; m.fwd = fwd;
+      const at = head.clone().addScaledVector(fwd, 0.6 * Math.cos(0.5)); at.y = head.y - 0.6 * Math.sin(0.5);
+      this.desk.position.lerp(at, 1 - Math.exp(-delta * 8)); this.desk.rotation.set(0, Math.atan2(-fwd.x, -fwd.z), 0);
+      if (m.tapped) this.deskFound(at, 'tap');
+      return;
+    }
+    if (m.phase === 'anchor') {
+      const uuid = localStorage.getItem(ANCHOR_UUID_KEY);
+      if (anchored() && uuid) {
+        localStorage.setItem(MR_KEY, JSON.stringify({ uuid, desk: this.poseOf(this.desk), wall: this.poseOf(this.wall), how: m.desk, wall2: m.wall, tray: this.tray.mesh.visible }));
+        m.phase = 'done'; this.redrawHeader();
+      } else if (m.t > 5) { m.phase = 'done'; m.wall += ' · not saved (no persistent anchor)'; this.redrawHeader(); }
+    }
+  }
+  private mrForget(why: string): void {
+    localStorage.removeItem(MR_KEY); console.log('[MD] re-place:', why);
+    this.detach(this.deskE, this.desk); this.detach(this.wallE, this.wall); this.wallMode = 'fallback'; this.restored = false;
+    this.layoutAround(this.mr.head!, this.mr.fwd!);
+    this.mr.phase = 'scan'; this.mr.t = 0; this.redrawHeader();
+  }
+  /** "📍 Re-place": forget the saved spot and place again from where the user is now. */
+  replace(): void {
+    if (!this.mrFlow()) return;
+    localStorage.removeItem(MR_KEY); sfx.pick();
+    this.mrBegin();
+  }
+  /** Test/autoplay hook: confirm the tap-to-place step (what a pinch does). */
+  tapPlace(): void { if (this.mr.phase === 'tap') this.mr.tapped = true; }
+  mrStatus(): string {
+    const m = this.mr;
+    if (m.vr) return '🖥 VR room (no passthrough on this device)';
+    if (m.phase === 'restore') return '📍 finding your saved desk…';
+    if (m.phase === 'scan' || m.phase === 'hit') return '📍 looking for your desk…';
+    if (m.phase === 'tap') return '📍 pinch to set your desk';
+    return m.desk.startsWith('restored') ? '📍 desk + wall restored in the same spot' : `📍 desk: ${m.desk} · wall: ${m.wall}`;
+  }
+  private showPlaceHint(): void {
+    this.placeHint.mesh.visible = true;
+    this.placeHint.draw((g, W, H) => { panel(g, W, H, C.sageDeep, undefined, 1); text(g, '📍 No desk found. Look where you want it, then pinch to set it here.', W / 2, H / 2, 18, '#fff', 600, W - 30, 'center'); });
   }
 
   // ---------------------------------------------------------------- items
@@ -308,7 +511,7 @@ export class MorningDeskSystem extends createSystem({
       entity.addComponent(RayInteractable);
       // spawn split parts where the parent was, so the split is visible
       const parent = !this.s.tasks[id].partOf ? undefined : [...this.items.values()].find((x) => this.s.tasks[id].partOf === x.id || id.startsWith(`${x.id}~`));
-      const start = parent?.label.mesh.position ?? this.desk.position;
+      const start = parent?.label.mesh.position ?? this.desk.getWorldPosition(new Vector3());
       label.mesh.position.copy(start);
       this.items.set(id, { id, label, entity, place: '', drawnKey: '' });
     }
@@ -330,28 +533,28 @@ export class MorningDeskSystem extends createSystem({
       const sl = layout(s).slots[it.id]; const start = sl.start - s.dayStart;
       const w = Math.max(0.03, (sl.end - sl.start) * this.pxPerM() - 0.006);
       out.set(-TRACK_W / 2 + start * this.pxPerM() + w / 2 + 0.003, 0, 0.006);
-      this.wall.localToWorld(out); outQ.copy(this.wall.quaternion);
+      this.wall.localToWorld(out); this.wall.getWorldQuaternion(outQ);
       return { w, h: TRACK_H, visible: true };
     }
     if (place === 'tomorrow') {
       const i = s.tomorrow.indexOf(it.id);
-      out.set(-TRACK_W / 2 + 0.1 + i * 0.17, -0.37, 0.006); this.wall.localToWorld(out); outQ.copy(this.wall.quaternion);
+      out.set(-TRACK_W / 2 + 0.1 + i * 0.17, -0.37, 0.006); this.wall.localToWorld(out); this.wall.getWorldQuaternion(outQ);
       return { w: 0.16, h: 0.045, visible: true };
     }
     if (place === 'skipped') {
-      out.set(0.7, -0.2, 0); this.desk.localToWorld(out); outQ.copy(this.desk.quaternion);
+      out.set(0.7, -0.2, 0); this.desk.localToWorld(out); this.desk.getWorldQuaternion(outQ);
       return { w: CARD_W, h: CARD_H, visible: false };
     }
     const onDesk = s.stack.filter((id) => s.tasks[id].priority === 1);
     if (s.tasks[it.id].priority !== 1) {
       const j = s.stack.filter((id) => s.tasks[id].priority !== 1).indexOf(it.id);
-      out.set(-0.095 + (j % 2) * 0.19, 0.065 - Math.floor(j / 2) * 0.12, 0.004); this.right.localToWorld(out); outQ.copy(this.right.quaternion);
+      out.set(-0.095 + (j % 2) * 0.19, 0.065 - Math.floor(j / 2) * 0.12, 0.004); this.right.localToWorld(out); this.right.getWorldQuaternion(outQ);
       return { w: CARD_W, h: CARD_H, visible: true };
     }
     const i = onDesk.indexOf(it.id);
     const col = i % 3, row = Math.floor(i / 3);
     out.set(-0.17 + col * 0.165, 0.035 + row * 0.005, 0.07 - row * 0.1); this.desk.localToWorld(out);
-    outQ.copy(this.desk.quaternion).multiply(this.q.setFromAxisAngle(new Vector3(1, 0, 0), -1.05));
+    this.desk.getWorldQuaternion(outQ).multiply(this.q.setFromAxisAngle(new Vector3(1, 0, 0), -1.05));
     return { w: CARD_W, h: CARD_H, visible: true };
   }
   private drawItem(it: Item, place: string, w: number, h: number): void {
@@ -401,10 +604,10 @@ export class MorningDeskSystem extends createSystem({
   /** Where would a card released at world point p land on the wall? (head→card ray, so seated users can "aim" it). */
   private wallSlot(p: Vector3, strict = false): number | null {
     const cam = this.headCam(); const head = this.tmp.setFromMatrixPosition(cam.matrixWorld);
-    const n = new Vector3(0, 0, 1).applyQuaternion(this.wall.quaternion);
+    const n = new Vector3(0, 0, 1).applyQuaternion(this.wall.getWorldQuaternion(new Quaternion()));
     const dir = p.clone().sub(head).normalize();
     const denom = n.dot(dir); if (Math.abs(denom) < 1e-3) return null;
-    const t = n.dot(this.wall.position.clone().sub(head)) / denom; if (t <= 0) return null;
+    const t = n.dot(this.wall.getWorldPosition(new Vector3()).sub(head)) / denom; if (t <= 0) return null;
     const hit = this.wall.worldToLocal(head.clone().addScaledVector(dir, t));
     if (Math.abs(hit.y) > 0.16 || hit.x < -TRACK_W / 2 - 0.1 || hit.x > TRACK_W / 2 + 0.25) return null;
     if (strict && (Math.abs(hit.y) > 0.1 || Math.abs(hit.x) > TRACK_W / 2)) return null; // on the track itself, not its margin
@@ -438,7 +641,7 @@ export class MorningDeskSystem extends createSystem({
     } else if (Math.abs(lateralSpeed) > SWIPE_SPEED) {
       s.stack = strip(s.stack); s.timeline = strip(s.timeline); s.tomorrow = strip(s.tomorrow);
       s.skipped.push(id); sfx.skip(); this.tutEvent('skip');
-    } else if (this.placeOf(id) !== 'stack' && p.distanceTo(this.desk.position) < 0.35) {
+    } else if (this.placeOf(id) !== 'stack' && p.distanceTo(this.desk.getWorldPosition(new Vector3())) < 0.35) {
       s.timeline = strip(s.timeline); s.tomorrow = strip(s.tomorrow); s.stack.push(id); sfx.drop();
     }
     this.commit();
@@ -474,48 +677,13 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- streak, tutorial, details
-  private buildPlant(): void {
-    const pot = new Mesh(new CylinderGeometry(0.03, 0.022, 0.045, 20), new MeshStandardMaterial({ color: C.clay, roughness: 0.9 }));
-    pot.position.y = 0.0225; this.plant.add(pot);
-    this.plant.position.set(0.27, 0, 0.0); this.desk.add(this.plant);
-  }
-  /** Plant growth stages: 0 seed · 1-2 sprout · 3-5 leafy · 6-9 bud · 10+ flower. */
-  private growPlant(): void {
-    while (this.plant.children.length > 1) this.plant.remove(this.plant.children[1]);
-    const n = Math.min(this.s.streak, 12);
-    const mat = (c: string, r = 0.8) => new MeshStandardMaterial({ color: c, roughness: r });
-    const soil = new Mesh(new CylinderGeometry(0.027, 0.027, 0.004, 20), mat('#6b5544', 1)); soil.position.y = 0.045; this.plant.add(soil);
-    if (n === 0) {
-      const seed = new Mesh(new SphereGeometry(0.006, 10, 8), mat('#a98a62')); seed.position.y = 0.049; seed.scale.y = 0.6; this.plant.add(seed);
-    } else {
-      const stemH = 0.012 + n * 0.007;
-      const stem = new Mesh(new CylinderGeometry(0.0018, 0.0028, stemH, 6), mat(C.sageDeep)); stem.position.y = 0.047 + stemH / 2; this.plant.add(stem);
-      const leaves = n <= 2 ? 2 : Math.min(2 + n, 11);
-      for (let i = 0; i < leaves; i++) {
-        const leaf = new Mesh(new SphereGeometry(0.012, 12, 8), mat(i >= leaves - 2 ? '#b8d8a8' : C.sage));
-        const a = i * 2.4, y = 0.05 + ((i + 1) / (leaves + 1)) * stemH, sz = n <= 2 ? 0.6 : 0.8 + 0.3 * (1 - i / leaves);
-        leaf.scale.set(1.3 * sz, 0.4 * sz, 0.75 * sz); leaf.position.set(Math.cos(a) * 0.013, y, Math.sin(a) * 0.013); leaf.rotation.set(0, -a, 0.35);
-        this.plant.add(leaf);
-      }
-      if (n >= 6) {
-        const top = 0.047 + stemH;
-        if (n < 10) { const bud = new Mesh(new SphereGeometry(0.007, 12, 10), mat('#e9b8a8')); bud.position.y = top + 0.004; bud.scale.y = 1.4; this.plant.add(bud); }
-        else {
-          for (let i = 0; i < 6; i++) {
-            const pet = new Mesh(new SphereGeometry(0.007, 10, 8), mat('#f2c6b4')); const a = (i / 6) * Math.PI * 2;
-            pet.scale.set(1.4, 0.35, 0.8); pet.position.set(Math.cos(a) * 0.009, top + 0.004, Math.sin(a) * 0.009); pet.rotation.y = -a; this.plant.add(pet);
-          }
-          const c = new Mesh(new SphereGeometry(0.004, 10, 8), mat(C.warn)); c.position.y = top + 0.006; this.plant.add(c);
-        }
-      }
-    }
-    this.plantGrow = 0;
-    const stage = n === 0 ? 'seed' : n <= 2 ? 'sprout' : n <= 5 ? 'leafy' : n <= 9 ? 'budding' : 'in bloom';
-    this.streakLabel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, `🌱 ${this.s.streak}-day streak · ${stage}`, W / 2, H / 2, 15, C.sageDeep, 600, W - 10, 'center'); });
+  /** Streak is a plain day count (v2: no plant / growth reward). */
+  private drawStreak(): void {
+    this.streakLabel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, `${this.s.streak}-day streak`, W / 2, H / 2, 15, C.sageDeep, 600, W - 10, 'center'); });
   }
   private finishDay(): void {
-    const before = this.s.streak; completeDay(this.s); this.streakAnim = { t: 0, from: before, to: this.s.streak }; save(this.s); this.growPlant(); sfx.done();
-    this.agentMsg = `Day closed. ${this.s.streak}-day streak, your plant grew. See you tomorrow.`; this.redrawAgent();
+    const before = this.s.streak; completeDay(this.s); this.streakAnim = { t: 0, from: before, to: this.s.streak }; save(this.s); this.drawStreak(); sfx.done();
+    this.agentMsg = `Day closed. ${this.s.streak}-day streak. See you tomorrow.`; this.redrawAgent();
     this.showSummary();
   }
   /** Spawn a panel in front of the viewer's current head pose: `dist` ahead (level gaze), `drop` below eye height, facing the head. */
@@ -653,7 +821,7 @@ export class MorningDeskSystem extends createSystem({
       // streak moment: bar grows from yesterday's streak to today's (real state)
       const a = this.streakAnim, v = a.from + (a.to - a.from) * k, max = Math.max(7, a.to + 2);
       const ys = H - 92;
-      text(g, `🌱 Streak ${k >= 1 ? a.to : a.from}${k >= 1 && a.to > a.from ? ` (+${a.to - a.from})` : ''} days`, 36, ys, 18, C.sageDeep, 700);
+      text(g, `Streak ${k >= 1 ? a.to : a.from}${k >= 1 && a.to > a.from ? ` (+${a.to - a.from})` : ''} days`, 36, ys, 18, C.sageDeep, 700);
       g.fillStyle = '#d8d2c4'; g.beginPath(); g.roundRect(220, ys - 7, W - 260, 14, 7); g.fill();
       g.fillStyle = C.sage; g.beginPath(); g.roundRect(220, ys - 7, (W - 260) * Math.min(1, v / max), 14, 7); g.fill();
     });
@@ -704,7 +872,7 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- drawing
-  private redrawAll(): void { this.redrawHeader(); this.redrawAgent(); this.growPlant(); this.redrawMeetings(); this.redrawBoards(); }
+  private redrawAll(): void { this.redrawHeader(); this.redrawAgent(); this.drawStreak(); this.redrawMeetings(); this.redrawBoards(); }
   private redrawBoards(): void {
     const s = this.s; const ms = s.meetings ?? []; const sl = layout(s).slots;
     const clash = new Set(Object.values(sl).map((x) => x.clash?.id).filter(Boolean));
@@ -751,7 +919,7 @@ export class MorningDeskSystem extends createSystem({
     this.header.draw((g, W, H) => {
       panel(g, W, H, C.paper, over ? C.warn : C.sage);
       text(g, `Today  ${fmt(this.s.dayStart)}–${fmt(this.s.dayStart + av)}`, 34, H * 0.34, 26, C.ink, 700);
-      if (!CLEAN_CAPTURE || this.wallMode === 'detected') text(g, this.wallMode === 'detected' ? (this.restored ? '📍 restored on your wall' : '📍 pinned to your wall') : `📍 no wall found: timeline placed ${WALL_FWD} m ahead`, 34, H * 0.74, 17, C.mute, 500, W * 0.55);
+      if (!CLEAN_CAPTURE || this.wallMode === 'detected') text(g, this.mrFlow() && this.mr.phase !== 'idle' ? this.mrStatus() : this.wallMode === 'detected' ? (this.restored ? '📍 restored on your wall' : '📍 pinned to your wall') : `📍 no wall found: timeline placed ${WALL_FWD} m ahead`, 34, H * 0.74, 17, C.mute, 500, W * 0.55);
       text(g, over ? `⚠ ${dur(tot)} planned / ${dur(av)} free` : `${dur(tot)} / ${dur(av)}`, W - 30, H / 2, 24, over ? '#b9772e' : C.sageDeep, 700, W, 'right');
     });
   }
@@ -861,7 +1029,7 @@ export class MorningDeskSystem extends createSystem({
     // loose flick (any speed): whole drag ends >120 px mostly sideways, or >=15 cm sideways in world, and not on the timeline
     const tx = e.clientX - md.px[0].x, ty = e.clientY - md.px[0].y;
     const endP = this.items.get(md.id)?.label.mesh.position;
-    const side = new Vector3(1, 0, 0).applyQuaternion(this.desk.quaternion);
+    const side = new Vector3(1, 0, 0).applyQuaternion(this.desk.getWorldQuaternion(new Quaternion()));
     const worldSide = endP ? Math.abs(endP.clone().sub(d.p0).dot(side)) : 0;
     const offTimeline = !endP || this.wallSlot(endP, true) === null;
     const loose = offTimeline && Math.abs(tx) > 1.5 * Math.abs(ty) && (Math.abs(tx) > 120 || worldSide >= 0.15);
@@ -879,7 +1047,7 @@ export class MorningDeskSystem extends createSystem({
     const it = this.items.get(d.id); if (!it) return;
     const p = it.label.mesh.position.clone();
     const b = d.hist[d.hist.length - 1];
-    const right = new Vector3(1, 0, 0).applyQuaternion(this.desk.quaternion);
+    const right = new Vector3(1, 0, 0).applyQuaternion(this.desk.getWorldQuaternion(new Quaternion()));
     // flick = fast sideways motion at the end of the drag: peak sample speed, or >=8 cm sideways within the last 350 ms
     let lateral = 0;
     for (let i = 1; i < d.hist.length; i++) {
@@ -923,6 +1091,7 @@ export class MorningDeskSystem extends createSystem({
     else if (this.thumb.t >= 0 || dir === 0) this.thumb = { dir, t: 0 };
   }
   private persistWall(): void {
+    if (this.mrFlow()) return; // v2 MR flow persists desk + wall in mrStep
     if (!this.wallE.hasComponent(XRAnchor) || !this.wallE.getValue(XRAnchor, 'attached')) return;
     if (this.restoreWall) {
       const [x, y, z, qx, qy, qz, qw] = this.restoreWall; this.restoreWall = null;
@@ -976,14 +1145,12 @@ export class MorningDeskSystem extends createSystem({
       if (Math.floor(this.streakAnim.t * 12) !== p0) this.sumDraw(Math.min(1, Math.max(0, (this.streakAnim.t - 0.6) / 2.4)));
     }
     this.persistWall();
+    this.mrStep(delta);
+    if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done';
     // agent acts on its own after a short beat
     if (this.agentTimer > 0) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }
     // tutorial
     if (this.tutorial.mesh.visible) { const t = this.tutorial.mesh.scale.x; this.tutorial.mesh.scale.setScalar(t + (1 - t) * k); }
-    // plant breathes / grows in
-    this.plantGrow = Math.min(1, this.plantGrow + delta * 1.5);
-    const sc = 0.6 + 0.4 * this.plantGrow + Math.sin(performance.now() / 1400) * 0.015;
-    this.plant.scale.setScalar(sc);
     // the level root marks children matrixAutoUpdate=false; our objects move every frame, so keep them live
     const live = (o: { matrixAutoUpdate: boolean; children: unknown[] }) => { o.matrixAutoUpdate = true; for (const c of o.children) live(c as typeof o); };
     live(this.desk); live(this.wall); live(this.left); live(this.right); for (const it of this.items.values()) it.label.mesh.matrixAutoUpdate = true;

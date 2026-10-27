@@ -52,6 +52,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const snap = () => JSON.stringify([!!sys.focus, sys.mr.phase, sys.wind?.step ?? -1, sys.s.streak, sys.agentMsg, document.body.dataset.wind ?? '']);
   const press = async (name: string) => {
     const b = button(name); if (!b) { say(`(button "${name}" not found)`); return; }
+    console.log('[MD] press', name);
     const p = posOf(b.label.mesh);
     const n = new Vector3(0, 0, 1).applyQuaternion(b.label.mesh.getWorldQuaternion(new (b.label.mesh.quaternion.constructor)())).toArray() as V3;
     const off = (d: number): V3 => [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d];
@@ -87,7 +88,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     say('3/6  sit somewhere else, poke 📍 Re-place: desk + wall follow you');
     { let last = 0; await tween(1200, (k) => { leanEmulatedHead(0.25 * (k - last)); last = k; }); } // slide ~25 cm to the right
     await sleep(500); cur = H(0.2, -0.32, -0.3); pin(R, cur);
-    await press('Re-place'); await sleep(300); await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 6000); await sleep(3000);
+    for (let i = 0; i < 3 && sys.mr.desk.startsWith('restored'); i++) { await press('Re-place'); await sleep(400); } await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 6000); await sleep(3000);
 
     say('4/6  pinch a block to focus · 👍 done');
     const id = sys.s.timeline.find((x: string) => !sys.s.tasks[x].done);
@@ -96,9 +97,11 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     await until(() => !!sys.focus, 3000); await sleep(2500);
     await thumbs(true); await until(() => !sys.focus, 3000); await sleep(1500);
 
+    if (sys.pending) { say('4/6  the planner adjusted the day · 👍 keep'); await thumbs(true); await until(() => !sys.pending, 3000); await sleep(1200); }
     say('5/6  🌙 Wind down: today in real numbers');
-    await press('Wind down'); await sleep(4000);
-    await press('Next');
+    for (let i = 0; i < 3 && !sys.wind; i++) { await press('Wind down'); await sleep(400); }
+    await sleep(3600);
+    for (let i = 0; i < 3 && sys.wind?.step === 0; i++) await press('Next');
     say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop');
     for (let i = 0; sys.wind && sys.wind.step <= sys.wind.list.length && i < 8; i++) {
       const t = sys.s.tasks[sys.wind.list[sys.wind.step - 1]]; await sleep(900);
@@ -106,7 +109,8 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     }
     await sleep(2000);
     say('6/6  close the day: tomorrow starts with these');
-    await press('Close day'); await sleep(2500);
+    for (let i = 0; i < 3 && sys.wind; i++) await press('Close day');
+    await sleep(2500);
     say(`v2 demo complete · ${sys.s.streak}-day streak`);
   } catch (e) {
     say(`autoplay stopped: ${(e as Error).message}`);

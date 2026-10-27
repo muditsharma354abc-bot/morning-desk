@@ -168,7 +168,7 @@ export class MorningDeskSystem extends createSystem({
 
     // v2 MR: tap-to-place hint + Re-place button (front-left of the desk, within reach)
     this.placeHint = new Label(0.42, 0.06); this.placeHint.mesh.visible = false; this.placeHint.mesh.position.set(0, 0.12, -0.05); this.placeHint.mesh.rotation.x = -0.35; this.desk.add(this.placeHint.mesh);
-    if (!CLEAN_CAPTURE) {
+    if (!CLEAN_CAPTURE || MR_FORCED) {
       this.replaceBtn = this.button('📍 Re-place', 0.12, () => this.replace(), this.deskE);
       this.replaceBtn.label.mesh.position.set(-0.24, 0.02, 0.13); this.replaceBtn.label.mesh.rotation.x = -0.9; this.replaceBtn.label.mesh.visible = false;
     }
@@ -326,7 +326,7 @@ export class MorningDeskSystem extends createSystem({
   // ---------------------------------------------------------------- v2: MR placement (real desk + real wall) and persistent anchors
   /** v2 MR flow: real headsets, or ?mr=1 in the emulator. Never in ?clean (the filmed v1 run keeps its layout). */
   mrFlow(): boolean {
-    if (!this.inXR() || CLEAN_CAPTURE) return false;
+    if (!this.inXR() || (CLEAN_CAPTURE && !MR_FORCED)) return false;
     if (IS_DEMO && !MR_FORCED) return false;
     return MR_FORCED || !(window as unknown as { IWER_DEVICE?: unknown }).IWER_DEVICE;
   }

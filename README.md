@@ -76,7 +76,7 @@ Press **✓ Done** on the desk to close the day. Your streak goes up if you also
 
 It ends with a short rule-based note on why the day went that way and one suggestion for tomorrow.
 
-![Day so far summary at the end of the demo run: 4 of 6 done, 1 meeting clash fixed, 5-day streak](docs/screenshots/04-day-summary-final.png)
+![Day so far summary at the end of the demo run: 4 of 6 done, 1 meeting clash fixed, 5-day streak (sample demo week)](docs/screenshots/04-day-summary-final.png)
 
 ## Hands-only interactions
 
@@ -142,7 +142,7 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 
 - **High contrast:** the **◐ Contrast** button (or `?contrast=1`) switches to a high-contrast palette.
 - **Last 7 days:** **📊 7 days** shows your progress over the past week, built only from data saved locally on this device. A fresh start shows **Start your streak today**. A **Sample week (demo data)** toggle fills the view with example days so you can see how it looks; it's off by default, held in memory only, and never mixed with or saved to your real history.
-- **Demo isolation:** demo runs use separate `morning-desk.demo.*` storage, so your real history and anchors stay untouched. Both demo walkthroughs end on **5-day streak**, and Wind down closes at the end.
+- **Demo isolation:** demo runs use separate `morning-desk.demo.*` storage, so your real history and anchors stay untouched. Both demo walkthroughs end on **5-day streak (sample demo week)**, and Wind down closes at the end.
 - **Readability:** timeline text is 1.5x larger, and the flat (non-XR) view fits common Mac screen sizes.
 - **Headset checklist:** `?test=1` adds a 16-item checklist you tick by poke, with a live frame-rate readout (average and minimum over the last 10 seconds). In the desktop emulator the scene is rendered in software, so that number is not a Quest frame rate. See [docs/HEADSET_TEST_PLAN.md](docs/HEADSET_TEST_PLAN.md).
 

@@ -1,5 +1,5 @@
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from '@iwsdk/core';
-import { C, FONT } from './style.js';
+import { C, FONT, GLASS_ALPHA } from './style.js';
 
 const PX = 1000; // canvas pixels per metre
 
@@ -33,12 +33,20 @@ export class Label {
   }
 }
 
-export function panel(g: CanvasRenderingContext2D, W: number, H: number, fill: string = C.paper, accent?: string, alpha = 0.98): void {
-  const r = Math.min(28, H / 4);
-  g.globalAlpha = alpha; g.fillStyle = fill;
-  g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, r); g.fill();
-  g.globalAlpha = 1;
-  if (accent) { g.fillStyle = accent; g.beginPath(); g.roundRect(2, 2, 14, H - 4, [r, 0, 0, r]); g.fill(); }
+/** The one panel family: rounded dark glass, soft drop shadow, hairline rim light, optional accent stripe. */
+export function panel(g: CanvasRenderingContext2D, W: number, H: number, fill: string = C.glass, accent?: string, alpha = 0.98): void {
+  const m = Math.min(8, H * 0.08), r = Math.min(28, (H - 2 * m) / 3.2), x = m, y = m * 0.6, w = W - 2 * m, h = H - 2 * m;
+  const a = fill === C.glass ? Math.min(alpha, 1) * GLASS_ALPHA / 0.98 : alpha;
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.35)'; g.shadowBlur = m * 1.6; g.shadowOffsetY = m * 0.45;
+  g.globalAlpha = Math.min(1, a); g.fillStyle = fill;
+  g.beginPath(); g.roundRect(x, y, w, h, r); g.fill();
+  g.restore();
+  // rim light: brighter along the top edge, like glass catching light
+  const grad = g.createLinearGradient(0, y, 0, y + h);
+  grad.addColorStop(0, 'rgba(255,255,255,0.28)'); grad.addColorStop(0.5, 'rgba(255,255,255,0.08)'); grad.addColorStop(1, 'rgba(255,255,255,0.04)');
+  g.strokeStyle = grad; g.lineWidth = 2; g.beginPath(); g.roundRect(x + 1, y + 1, w - 2, h - 2, r); g.stroke();
+  if (accent) { g.fillStyle = accent; g.beginPath(); g.roundRect(x, y, 10, h, [r, 0, 0, r]); g.fill(); }
 }
 export function text(g: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, color: string = C.ink, weight = 500, maxW = 9999, align: CanvasTextAlign = 'left'): void {
   g.fillStyle = color; g.font = `${weight} ${size}px ${FONT}`; g.textAlign = align; g.textBaseline = 'middle';

@@ -173,7 +173,7 @@ export class MorningDeskSystem extends createSystem({
     this.placeHint = new Label(0.42, 0.06); this.placeHint.mesh.visible = false; this.placeHint.mesh.position.set(0, 0.12, -0.05); this.placeHint.mesh.rotation.x = -0.35; this.desk.add(this.placeHint.mesh);
     if (!CLEAN_CAPTURE || MR_FORCED) {
       this.replaceBtn = this.button('📍 Re-place', 0.12, () => this.replace(), this.deskE);
-      this.replaceBtn.label.mesh.position.set(-0.24, 0.02, 0.13); this.replaceBtn.label.mesh.rotation.x = -0.5; this.replaceBtn.label.mesh.visible = false;
+      this.replaceBtn.label.mesh.position.set(0.3, 0.035, -0.17); this.replaceBtn.label.mesh.rotation.x = -0.5; this.replaceBtn.label.mesh.visible = false; // end of the desk button row: inside the level-gaze view, within reach
     }
 
     this.detail = new Label(0.3, 0.16); this.detail.mesh.visible = false;

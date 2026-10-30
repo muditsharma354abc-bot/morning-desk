@@ -168,7 +168,10 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 
 - **Desk:** it looks for a table-height surface first, then tries a hit-test, and if both fail it asks you to tap to place the desk about 60 cm ahead.
 - **Timeline:** it goes on a detected wall in front of you. If no wall is found, it floats about 1.1 m ahead at eye height.
-- **Same spot when you return:** the desk and wall positions are saved against a persistent WebXR anchor, and they come back in the same spot when you return (tested in the emulator only; untested on a headset). If the anchor can't be found, you place them again.
+- **Same spot when you return:** the desk and wall are saved against a persistent WebXR anchor, so the desk comes back in the same spot (tested in emulator). If the anchor can't be found, you place them again.
+- **Room Zones (step 4):** tap 🎯 Claim zone, look to target a real surface (head gaze), then pinch to claim it. The first claim is a Focus zone and the second a Quick zone. The planning agent sends long Pending cards to Focus and short ones to Quick, and you can drop a card on a zone yourself. Zones are stored relative to the anchored desk, so they come back in the same spot (tested in emulator).
+- **Look to target:** the card you face for half a second glows. This is head gaze, not eye tracking.
+- **Depth occlusion:** always requested, with no flag needed. If depth sensing isn't granted, the app logs one line and renders normally. Real occlusion only works on a headset and is unverified on Quest 3S.
 - **📍 Re-place** on the desk moves everything to where you're sitting now.
 - **VR fallback:** if the browser can't do immersive-ar, you get a virtual room instead.
 

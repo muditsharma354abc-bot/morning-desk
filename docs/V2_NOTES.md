@@ -26,3 +26,10 @@
 - Real-world scale: key UI within about ±30°, interactions within about 60 cm, seated vs standing.
 - Pinch to confirm tap to place, thumbs gestures and poke with real hand tracking (IWER emulates hands).
 - The VR fallback on a real device without immersive-ar.
+
+## Depth occlusion (v2.1)
+- `xr.features.depthSensing` is **optional** (`gpu-optimized`, `float32`). `DepthSensingSystem` is registered, and `DepthOccludable` (soft) is attached to the desk, wall/timeline, Meetings and Pending boards, and every card entity.
+- Text shaders: occlusion compiled on 10/10 card materials in IWER 2.7 with its synthetic depth. There were no shader errors and the text still renders.
+- When depth isn't granted (tested by removing `depth-sensing` from the session request): the system logs one warning (`depth-sensing feature not enabled… disabled`), occlusion stays off (0/10 enabled), there are no errors, and rendering is normal.
+- **Real occlusion is headset-only.** Only the emulator's synthetic depth has been verified. **Quest 3S depth is unverified.**
+- Layout: the planner is no longer moved onto the desk; it stays above the timeline header. The 7 days and Contrast chips sit under the Pending cards, clear of the monitor, with or without depth.

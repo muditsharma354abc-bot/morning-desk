@@ -42,3 +42,14 @@ Recording itself can drop fps, so measure first, without recording.
 
 ## Report back
 The checklist ticks (a screenshot of the `?test=1` panel), the fps numbers, placement photos, tries per gesture, and any bug with exact steps.
+
+## Optional: driving the headset from the dev machine (`--native-xr-control`)
+
+> **⚠️ Use this for debugging only. Do NOT use it for the judged hands-only run.** Native XR control can inject synthetic controller/pose input into the real headset session. Anything you do through it does not show the experience working hands-only. Before the fps or hands-only checks, stop the dev server, unplug USB, and reload the Pages URL.
+
+1. On the Mac: `npm run dev -- --native-xr-control` (equivalently `npx iwsdk dev up --native-xr-control`). Note the local port it prints (8081).
+2. Connect the Quest 3 over USB with developer mode on and USB debugging allowed, then run `adb devices` (the headset should be listed) and `adb reverse tcp:8081 tcp:8081`.
+3. In the headset browser, open `https://localhost:8081/morning-desk/?test=1` and enter MR.
+4. Pair: `npx iwsdk runtime pair-headset`. Accept the prompt in the headset if one appears.
+5. List what can be driven: `npx iwsdk runtime targets`. Pick the Quest browser tab.
+6. Caveats: the commands above may differ between IWSDK versions (check `npx iwsdk --help` on the pinned version). Over USB, timing and fps are not representative. `adb reverse` resets on replug. Synthetic input may switch the session to controllers, so after debugging exit XR, reload, and confirm the hand icons are back.

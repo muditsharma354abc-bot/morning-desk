@@ -1,4 +1,4 @@
-import { World } from '@iwsdk/core';
+import { DepthSensingSystem, World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
 import { MorningDeskSystem } from './desk-system.js';
 import { loadFonts } from './style.js';
@@ -15,6 +15,8 @@ import { loadFonts } from './style.js';
 }
 
 void loadFonts().then(() => World.create(document.getElementById('scene-container') as HTMLDivElement, projectOptions).then((world) => {
+  // depth occlusion: optional feature (iwsdk.config.json); without a granted depth-sensing feature the system logs once and does nothing
+  world.registerSystem(DepthSensingSystem);
   world.registerSystem(MorningDeskSystem);
   if (new URLSearchParams(location.search).has('clean')) void import('./clean.js').then((m) => m.enableCleanCapture(world)); // capture-only
   { const q = new URLSearchParams(location.search); if (q.has('demo') || q.has('clean')) void import('./hide-lamp.js').then((m) => m.enableLampHide()); } // capture-only

@@ -25,6 +25,11 @@
         },
         "meshDetection": {
           "required": false
+        },
+        "depthSensing": {
+          "required": false,
+          "usage": "gpu-optimized",
+          "format": "float32"
         }
       }
     },

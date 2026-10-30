@@ -8,7 +8,7 @@ import { LAMP } from './hide-lamp.js';
 import { PlanChange, RulePlanner } from './planner.js';
 import { C, FONT, HC, setContrast, sfx, unlockAudio } from './style.js';
 import { clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, lastWeek, layout, load, PlanState, save, scheduledMinutes } from './state.js';
-import { BackSide, MeshBasicMaterial } from '@iwsdk/core';
+import { BackSide, DepthOccludable, MeshBasicMaterial, OcclusionShadersMode } from '@iwsdk/core';
 /** Demo days run the focus timer accelerated (and say so on the panel). */
 const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
 /** ?clean=1 video capture: hides the fallback-wall note (see clean.ts for the emulator chrome). */
@@ -99,7 +99,7 @@ export class MorningDeskSystem extends createSystem({
   private meetingLabels: Label[] = [];
   private deskRow: Mesh[] = [];
   // P1 spatial layout: meetings board on the left, pending board on the right, progress in the background
-  private left = new Group(); private right = new Group(); private leftE!: Entity;
+  private left = new Group(); private right = new Group(); private leftE!: Entity; private rightE!: Entity;
   private tmpQ = new Quaternion(); private testG = new Group(); private testHead?: Label; private testTicks: Record<string, boolean> = {}; private fpsB: number[] = []; private fpsCur = 0; private fpsT = 0; private fpsShowT = 0;
   private chips: Mesh[] = []; private flatFovAspect = 0;
   private sampleWeek = false; private sampleBtn!: Btn;
@@ -131,19 +131,19 @@ export class MorningDeskSystem extends createSystem({
     this.deskE = this.world.createTransformEntity(this.desk, { persistent: true });
     this.wallE = this.world.createTransformEntity(this.wall, { persistent: true });
     this.setBackground(true);
-    this.leftE = this.world.createTransformEntity(this.left, { persistent: true }); this.world.createTransformEntity(this.right, { persistent: true });
+    this.leftE = this.world.createTransformEntity(this.left, { persistent: true }); this.rightE = this.world.createTransformEntity(this.right, { persistent: true });
     this.meetBoard = new Label(0.4, 0.3); this.left.add(this.meetBoard.mesh);
     // between-session progress: last 7 days from stored history only (never in demo runs, which use fixed demo data)
     this.history = new Label(0.4, 0.13); this.history.mesh.position.set(0, -0.29, 0); this.left.add(this.history.mesh);
     this.history.mesh.visible = false; this.drawHistory();
     // accessibility: high-contrast toggle (also ?contrast=1)
-    const hb = this.button('📊 7 days', 0.11, () => { this.drawHistory(); this.history.mesh.visible = !this.history.mesh.visible; this.histT = this.history.mesh.visible ? 25 : 0; this.syncHistBtns(); }, this.leftE);
-    this.chips.push(hb.label.mesh); hb.label.mesh.position.set(0.01, -0.185, 0.004); for (const m of [hb.label.mesh]) { (m.material as MeshBasicMaterial).depthTest = false; m.renderOrder = 12; } if (CLEAN_CAPTURE && !MR_FORCED) hb.label.mesh.visible = false;
+    const hb = this.button('📊 7 days', 0.11, () => { this.drawHistory(); this.history.mesh.visible = !this.history.mesh.visible; this.histT = this.history.mesh.visible ? 25 : 0; this.syncHistBtns(); }, this.rightE);
+    this.chips.push(hb.label.mesh); hb.label.mesh.position.set(-0.05, -0.15, 0.004); for (const m of [hb.label.mesh]) { (m.material as MeshBasicMaterial).depthTest = false; m.renderOrder = 12; } if (CLEAN_CAPTURE && !MR_FORCED) hb.label.mesh.visible = false;
     // 'Sample week (demo data)': clearly labelled fake week for showing the view; held in memory only, never saved or mixed with real history
     this.sampleBtn = this.button('Sample week (demo data): off', 0.27, () => this.toggleSample(), this.leftE);
     this.sampleBtn.label.mesh.position.set(0, -0.385, 0.004); this.sampleBtn.label.mesh.visible = false;
     if (TEST && !CLEAN_CAPTURE && !new URLSearchParams(location.search).has('autoplay')) this.buildTest(); // never in filming runs
-    const hc = this.button('◐ Contrast', 0.11, () => this.toggleContrast(), this.leftE); this.chips.push(hc.label.mesh); hc.label.mesh.position.set(0.13, -0.185, 0.004); (hc.label.mesh.material as MeshBasicMaterial).depthTest = false; hc.label.mesh.renderOrder = 12; // never hidden behind Meetings
+    const hc = this.button('◐ Contrast', 0.11, () => this.toggleContrast(), this.rightE); this.chips.push(hc.label.mesh); hc.label.mesh.position.set(0.075, -0.15, 0.004); (hc.label.mesh.material as MeshBasicMaterial).depthTest = false; hc.label.mesh.renderOrder = 12; // never hidden behind Meetings
     if (CLEAN_CAPTURE && !MR_FORCED) hc.label.mesh.visible = false; // the filmed v1 layout stays as recorded
     this.pendHeader = new Label(0.36, 0.05); this.pendHeader.mesh.position.set(0, 0.16, 0); this.right.add(this.pendHeader.mesh);
     this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag to plan', 30, H / 2, 20, C.ink, 700, W - 40); });
@@ -270,6 +270,8 @@ export class MorningDeskSystem extends createSystem({
       for (const id of ['hud', 'hint']) { const el = document.getElementById(id); if (el) el.style.display = this.inXR() ? 'none' : ''; }
     }));
     this.hookDom();
+    // depth occlusion (soft): every app panel/card/timeline. Plain MeshBasic/MeshStandard materials only (canvas-textured labels, no troika/uikit text), so the inline shader patch applies cleanly. No depth granted → uniforms stay off, normal rendering.
+    for (const e of [this.deskE, this.wallE, this.leftE, this.rightE]) this.occl(e);
     if (!IS_DEMO && (this.s.history ?? []).length) { this.history.mesh.visible = true; this.histT = 25; this.syncHistBtns(); } // shown on open, then out of the way
     if (HC.on) document.body.dataset.contrast = '1';
     this.syncItems();
@@ -710,7 +712,7 @@ export class MorningDeskSystem extends createSystem({
     }
     const boxes = this.obstacleBoxes(head, fwd); this.mr.blocked = boxes.length ? '' : 'no meshes';
     if (!boxes.length) return;
-    if ([this.agentPanel.mesh, this.yesBtn.label.mesh, this.noBtn.label.mesh].some((m) => this.occluded(m, head, boxes))) {
+    if (false as boolean) { // v2.1: the planner stays above the timeline header (clear of monitor + stand); no desk relocation
       // stand the planner card up at the back of the real desk, ~1.5 cm above it, tilted toward the user; Keep/Undo beside it
       this.desk.add(this.agentPanel.mesh); this.agentPanel.mesh.position.set(-0.07, 0.11, -0.2); this.agentPanel.mesh.rotation.set(-0.35, 0, 0);
       this.desk.add(this.yesBtn.label.mesh); this.desk.add(this.noBtn.label.mesh);
@@ -745,6 +747,7 @@ export class MorningDeskSystem extends createSystem({
     this.buttons.set(entity.index, b);
     return b;
   }
+  private occl(e: Entity): void { if (!e.hasComponent(DepthOccludable)) e.addComponent(DepthOccludable, { mode: OcclusionShadersMode.SoftOcclusion }); }
   private syncItems(): void {
     const live = new Set(Object.keys(this.s.tasks));
     for (const [id, it] of this.items) if (!live.has(id)) { it.entity.dispose(); this.items.delete(id); }
@@ -759,6 +762,7 @@ export class MorningDeskSystem extends createSystem({
       const parent = !this.s.tasks[id].partOf ? undefined : [...this.items.values()].find((x) => this.s.tasks[id].partOf === x.id || id.startsWith(`${x.id}~`));
       const start = parent?.label.mesh.position ?? this.desk.getWorldPosition(new Vector3());
       label.mesh.position.copy(start);
+      this.occl(entity);
       this.items.set(id, { id, label, entity, place: '', drawnKey: '' });
     }
   }
@@ -1212,6 +1216,8 @@ export class MorningDeskSystem extends createSystem({
   // ---------------------------------------------------------------- drawing
   private redrawAll(): void { this.redrawHeader(); this.redrawAgent(); this.drawStreak(); this.redrawMeetings(); this.redrawBoards(); }
   private redrawBoards(): void {
+    { const n = this.s.stack.filter((id) => this.s.tasks[id]?.priority !== 1).length, rows = Math.max(1, Math.ceil(n / 2)), step = this.mrFlow() ? 0.13 : 0.12;
+      const y = 0.065 - (rows - 1) * step - 0.045 - 0.04; for (const m of this.chips) m.position.y = y; } // chips sit just under the last Pending row
     const s = this.s; const ms = s.meetings ?? []; const sl = layout(s).slots;
     const clash = new Set(Object.values(sl).map((x) => x.clash?.id).filter(Boolean));
     this.meetBoard.draw((g, W, H) => {

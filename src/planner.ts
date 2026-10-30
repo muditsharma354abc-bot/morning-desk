@@ -81,4 +81,44 @@ export class RulePlanner implements Planner {
     }
     return null;
   }
+  /** Step 3 morning pre-plan: mood splits, low-mood cap (extras go to Pending), must-dos from the desk that fit,
+   *  then meeting clashes and overload. Returns the new state and ONE line saying what changed ('' = nothing). */
+  morning(s0: PlanState, cap?: number): { after: PlanState; line: string } {
+    const s = clone(s0); let split = 0, parked = 0, planned = 0, fixed = 0, deferred = 0;
+    const apply = (c: PlanChange) => { Object.assign(s, clone(c.after)); if (c.kind === 'conflict') fixed++; else if (c.kind === 'defer') deferred++; else split++; };
+    // 1) meeting clashes first (so mood splits work on the fixed blocks)
+    for (let i = 0; i < 8; i++) { const c = this.nextChange(s); if (!c || c.kind !== 'conflict') break; apply(c); }
+    // 2) low-mood cap: keep whole tasks in order until ≤cap blocks after splitting; the rest wait in Pending (unsplit)
+    if (cap) { const MAX = maxBlock(s); let blocks = 0; const keep: string[] = [];
+      for (const id of s.timeline) { const t = s.tasks[id]; const n = t.done ? 0 : Math.ceil(t.minutes / MAX);
+        if (t.done || blocks + n <= cap) { keep.push(id); blocks += n; } else { s.stack.unshift(id); parked++; } }
+      s.timeline = keep; }
+    // 3) mood splits
+    for (let i = 0; i < 30; i++) { const c = this.nextSplit(s); if (!c) break; apply(c); }
+    // 4) overload (defer) and anything else, then must-dos from the desk that fit, then a last pass
+    for (let i = 0; i < 12; i++) { const c = this.nextChange(s); if (!c) break; apply(c); }
+    const open = () => s.timeline.filter((id) => !s.tasks[id].done).length;
+    for (const id of [...s.stack]) {
+      const t = s.tasks[id]; if (!t || t.priority !== 1 || t.done || (cap && open() >= cap + 1)) continue;
+      const trial = clone(s); trial.timeline.push(id); trial.stack = trial.stack.filter((x) => x !== id);
+      if (scheduledMinutes(trial) <= s.availableMinutes && !layout(trial).slots[id].clash && !this.nextSplit(trial)) { Object.assign(s, trial); planned++; }
+    }
+    const parts: string[] = [];
+    if (planned) parts.push(`${planned} must-do planned`);
+    if (fixed) parts.push(`${fixed} clash${fixed > 1 ? 'es' : ''} fixed`);
+    if (split) parts.push(`${split} split`);
+    if (parked) parts.push(`${parked} to Pending`);
+    if (deferred) parts.push(`${deferred} to tomorrow`);
+    const n = planned + fixed + split + parked + deferred;
+    return { after: s, line: n ? `Moved ${n} thing${n > 1 ? 's' : ''} for you: ${parts.join(', ')}` : '' };
+  }
+  /** Quiet auto-adjust after an early finish: put one Pending must-do / should-do into the freed time if it fits. */
+  fillGap(s0: PlanState): PlanState | null {
+    for (const id of s0.stack) {
+      const t = s0.tasks[id]; if (!t || t.done || t.priority > 2) continue;
+      const trial = clone(s0); trial.timeline.push(id); trial.stack = trial.stack.filter((x) => x !== id);
+      if (scheduledMinutes(trial) <= s0.availableMinutes && !layout(trial).slots[id].clash) return trial;
+    }
+    return null;
+  }
 }

@@ -38,6 +38,8 @@ export interface PlanState {
   history?: DayLog[];      // closed days, newest last (real measured data only; max 30)
   mood?: Mood;             // step 2 mood check (on-device only); unset = v2.1 behaviour (90 min blocks, no breaks)
   moodDay?: string;        // YYYY-MM-DD the mood was picked (asked once per day)
+  agentDay?: string;       // step 3: morning agent ran on this day
+  windAutoDay?: string;    // step 3: evening Wind down opened itself on this day
 }
 export const IS_DEMO = new URLSearchParams(location.search).has('demo');
 // demo runs keep their own key so they never overwrite (or mark the tutorial seen for) a real visit

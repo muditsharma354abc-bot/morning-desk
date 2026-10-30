@@ -72,6 +72,23 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     R.poseId = 'default'; pin(R, p);
   };
   const log = (x: string) => { document.body.dataset.v2log = `${document.body.dataset.v2log ?? ''}${x};`; };
+  // Reel (&wake=1): Room wakes up plays, then a real poke on a mood orb (&mood=low|okay|focused, default okay) and 👍 Keep
+  { const q = new URLSearchParams(location.search);
+    if (q.get('wake') === '1') {
+      say('Room wakes up'); await until(() => document.body.dataset.wake === 'done', 15000);
+      await until(() => document.body.dataset.mood === 'ask', 3000); await sleep(1200);
+      const m = (['low', 'okay', 'focused'].includes(q.get('mood') ?? '') ? q.get('mood') : 'okay') as string;
+      const o = sys.wake.orbItems.find((x: any) => x.m === m);
+      if (o) { say(`Mood: ${m}`); const p = posOf(o.label.mesh);
+        const n = new Vector3(0, 0, 1).applyQuaternion(o.label.mesh.getWorldQuaternion(new (o.label.mesh.quaternion.constructor)())).toArray() as V3;
+        const off = (d: number): V3 => [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d];
+        R.poseId = 'point'; const from = cur;
+        await tween(900, (k) => R.setPin({ anchor: 'index-tip', target: lerp3(from, off(0.07), k) }));
+        await tween(350, (k) => R.setPin({ anchor: 'index-tip', target: lerp3(off(0.07), off(-0.015), k) }));
+        await tween(350, (k) => R.setPin({ anchor: 'index-tip', target: lerp3(off(-0.015), off(0.1), k) })); cur = off(0.1);
+        await until(() => !!sys.pending || document.body.dataset.morning === '0', 4000); await sleep(2200);
+        if (sys.pending) { say('👍 Keep'); await press('Keep'); await sleep(1500); } }
+    } }
   const card = (id: string) => posOf(sys.items.get(id).label.mesh);
   try {
     say('1/6  passthrough: desk on your real table, plan on your real wall');

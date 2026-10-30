@@ -81,7 +81,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       await until(() => document.body.dataset.mood === 'ask', 20000); await sleep(1200);
       const m = (['low', 'okay', 'focused'].includes(q.get('mood') ?? '') ? q.get('mood') : 'okay') as string;
       const o = sys.wake.orbItems.find((x: any) => x.m === m);
-      if (o) { say(`Mood: ${m}`); const p = posOf(o.label.mesh);
+      if (o) { say(`Mood: ${m}`); sys.wake.hint = m; await sleep(1400); const p = posOf(o.label.mesh);
         const n = new Vector3(0, 0, 1).applyQuaternion(o.label.mesh.getWorldQuaternion(new (o.label.mesh.quaternion.constructor)())).toArray() as V3;
         const off = (d: number): V3 => [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d];
         R.poseId = 'point'; const from = cur;
@@ -93,14 +93,31 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
           await tween(400, (k) => R.setPin({ anchor: 'index-tip', target: lerp3(off(-0.015), off(0.07), k) }));
         }
         if (document.body.dataset.mood === 'ask') { log('moodFallback'); sys.wake.pick(m); }
+        sys.wake.hint = null;
         R.setPin({ anchor: 'index-tip', target: off(0.1) }); cur = off(0.1);
         if (!(await until(() => !sys.wake.moodShown(), 6000))) { say('autoplay stopped: mood check did not close'); return; }
         await until(() => !!sys.pending || document.body.dataset.morning === '0', 15000); await sleep(2200);
         if (sys.pending) { say('👍 Keep'); try { await press('Keep'); } catch (e) { say(`autoplay stopped: ${(e as Error).message}`); return; } await sleep(1500); } }
     } }
   const card = (id: string) => posOf(sys.items.get(id).label.mesh);
+  // Reel (&zones=1): Room Zones beat after Keep: Focus + Quick zones on the table either side, agent cards fly in, then look to target
+  if (new URLSearchParams(location.search).get('zones') === '1') {
+    say('🎯 Claim a Focus zone'); await sleep(900); sys.claimAt([-0.4, 0.01, -0.1]); await sleep(2200);
+    say('🎯 Claim a Quick zone'); sys.claimAt([0.42, 0.01, -0.1]); await sleep(2600);
+    const id = sys.s.stack.find((x: string) => sys.items.get(x)?.label.mesh.visible && (sys.zoneTarget(x, new Vector3(), new (sys.desk.quaternion.constructor)()) && sys.lastZone === 'focus')) ?? sys.s.stack.find((x: string) => sys.items.get(x)?.label.mesh.visible);
+    const ui = Object.getOwnPropertySymbols(dev).map((k) => dev[k]?.devui?.inputLayer).find((x: any) => x?.playerRig);
+    if (id && ui) {
+      const m = sys.items.get(id).label.mesh; const w = m.getWorldPosition(new Vector3()); const h = head(); const d = w.sub(h);
+      const y0 = ui.playerRig.rotation.y, x0 = ui.cameraRig.rotation.x;
+      const y1 = Math.atan2(-d.x, -d.z), x1 = Math.atan2(d.y, Math.hypot(d.x, d.z));
+      const aim = (k: number, a: number, b: number, c: number, e: number) => { ui.playerRig.rotation.y = a + (b - a) * k; ui.cameraRig.rotation.x = c + (e - c) * k; ui.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui.cameraRig.getWorldQuaternion(new (m.quaternion.constructor)())); };
+      say('👀 Look to target: the card you face glows');
+      await tween(900, (k) => aim(k, y0, y1, x0, x1)); await until(() => document.body.dataset.gaze === id, 1500); log(`gaze${document.body.dataset.gaze === id ? '+' : '-'}`); document.body.dataset.zonesBeat = document.body.dataset.gaze === id ? 'gaze' : 'nogaze'; await sleep(2000);
+      await tween(900, (k) => aim(k, y1, y0, x1, x0));
+    }
+  }
   try {
-    say('1/6  passthrough: desk on your real table, plan on your real wall');
+    say('1/6  passthrough: desk on your table, plan on your wall');
     await move(H(-0.05, -0.36, -0.22), 900); await sleep(4000);
 
     say('2/6  leave and re-enter XR: desk + wall come back in the same spot (persistent anchor)');
@@ -121,11 +138,11 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     const id = sys.s.timeline.find((x: string) => !sys.s.tasks[x].done);
     const c = card(id); await move([c[0], c[1] + 0.05, c[2] + 0.12], 1300); await move(card(id), 500); await sleep(250);
     await pinch(1); await sleep(120); await pinch(0);
-    await until(() => !!sys.focus, 3000); await sleep(2500);
+    await until(() => !!sys.focus, 3000); await until(() => sys.focusPanel.mesh.scale.x > 0.97, 4000); await move(H(0.3, -0.45, -0.1), 600); say('4/6  Focus: timer running, room dimmed'); await sleep(3500); // hold ~3 s on the Focus panel + timer (readable on a slow box)
     await thumbs(true); await until(() => !sys.focus, 3000); await sleep(1500);
 
     if (sys.pending) { say('4/6  the planner adjusted the day · 👍 keep'); await thumbs(true); await until(() => !sys.pending, 3000); await sleep(1200); }
-    say('5/6  🌙 Wind down: today in real numbers');
+    say('5/6  🌙 Wind down: today in numbers');
     // state-driven so a missed poke just retries (deterministic outcome: must-dos kept, the rest dropped)
     let said = 0; const t0 = performance.now();
     while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 360000) {

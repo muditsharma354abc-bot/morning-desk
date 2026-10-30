@@ -166,9 +166,13 @@ export class Wake {
       for (const o of this.orbItems) { const on = o.m === this.picked; o.label.mesh.scale.setScalar(on ? 1 + 0.25 * p : Math.max(0.01, 1 - p));
         (o.orb.material as MeshBasicMaterial).color.set(on && Math.floor(this.pickT * 8) % 2 === 0 ? '#FFFFFF' : o.col); }
       if (this.pickT > 0.9 && !this.pickHold) this.applyPick(this.picked); return; }
-    this.orbItems.forEach((o, i) => { const k = ease((this.moodT - i * 0.12) / 0.25); o.label.mesh.scale.setScalar(Math.max(0.01, k)); o.orb.rotation.y += dt * 0.6; o.orb.position.y = 0.018 + Math.sin(this.moodT * 2 + i) * 0.004; });
+    this.orbItems.forEach((o, i) => { const k = ease((this.moodT - i * 0.12) / 0.25); o.label.mesh.scale.setScalar(Math.max(0.01, k)); o.orb.rotation.y += dt * 0.6; o.orb.position.y = 0.018 + Math.sin(this.moodT * 2 + i) * 0.004;
+      const on = this.hint === o.m; if (on) o.label.mesh.scale.setScalar(Math.max(0.01, k) * (1.15 + 0.04 * Math.sin(this.moodT * 6)));
+      o.orb.scale.setScalar(on ? 1.35 : 1); (o.orb.material as MeshBasicMaterial).color.set(on && Math.floor(this.moodT * 3) % 2 === 0 ? '#FFFFFF' : o.col); });
   }
   private picked: Mood | null = null; private pickT = 0;
+  /** Autoplay: the orb about to be poked is highlighted (grows, pulses white) so the choice reads on video. */
+  hint: Mood | null = null;
   /** One pinch: the chosen orb lights up and grows, the others fade, then the choice is applied. */
   pick(m: Mood): void {
     if (!this.moodOpen || this.picked) return;

@@ -7,11 +7,11 @@ import { Label, panel, para, text } from './label.js';
 import { LAMP } from './hide-lamp.js';
 import { PlanChange, RulePlanner } from './planner.js';
 import { Wake } from './wake.js';
-import { loadZones, saveZones, Zone, ZoneKind, ZONE_NAME, zoneMarker, zoneSlot, zoneWants } from './zones.js';
+import { loadZones, saveZones, Zone, ZoneKind, ZONE_NAME, ZONE_CARDS, zoneMarker, zoneSlot, zoneWants } from './zones.js';
 import { Raycaster } from '@iwsdk/core';
 import { C, FONT, HC, setContrast, sfx, unlockAudio } from './style.js';
 import { MOODS, Mood, today, clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, lastWeek, layout, load, PlanState, save, scheduledMinutes } from './state.js';
-import { BackSide, DepthOccludable, MeshBasicMaterial, OcclusionShadersMode } from '@iwsdk/core';
+import { AdditiveBlending, BackSide, DepthOccludable, MeshBasicMaterial, OcclusionShadersMode } from '@iwsdk/core';
 /** Demo days run the focus timer accelerated (and say so on the panel). */
 const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
 /** ?clean=1 video capture: hides the fallback-wall note (see clean.ts for the emulator chrome). */
@@ -45,13 +45,14 @@ const DEBUG = new URLSearchParams(location.search).has('debug');
 /** ?test=1: headset test checklist (poke to tick) + live fps (avg / min over the last 10 s). */
 const TEST = new URLSearchParams(location.search).has('test');
 const TEST_KEY = 'morning-desk.test.v1';
-const TEST_ITEMS = ['Desk on real table', 'Timeline on real wall', 'Re-place works', 'Anchors after reload', 'Pinch-drag → plan', '📅 Plan it button', 'Flick → skip', '⏭ Skip button', 'Tap → Focus · 👍 done', 'Done/+15/Exit btns', '👍/👎 Keep · Undo', 'Wind-down 👍/👎 + btns', 'High contrast', 'Last 7 days', 'Tutorial completes', '60 fps held'];
+const TEST_ITEMS = ['Desk on table', 'Timeline on wall', 'Re-place works', 'Anchors after reload', 'Pinch-drag → plan', '📅 Plan it button', 'Flick → skip', '⏭ Skip button', 'Tap → Focus · 👍 done', 'Done/+15/Exit btns', '👍/👎 Keep · Undo', 'Wind-down 👍/👎 + btns', 'High contrast', 'Last 7 days', 'Tutorial completes', '60 fps held'];
 const MR_KEY = IS_DEMO ? 'morning-desk.demo.mr.v2' : 'morning-desk.mr.v2'; // demo runs keep their own placement; real anchors untouched               // { uuid, desk pose, wall pose } relative to IWSDK's persistent anchor
 const ANCHOR_UUID_KEY = 'iwsdk_scene_anchor_uuid'; // IWSDK SceneUnderstandingSystem's persistent anchor UUID
 
 // ---- layout constants (metres). Seated, ~0.6 m reach, key UI within ~30° of gaze centre.
 const DESK_FWD = 0.4, DESK_DOWN = 0.26;      // card spread in easy reach
-const WALL_FWD = 1.1;                         // fallback timeline distance, eye height
+const WALL_FWD = 1.1;
+const WALL_UP = 0.16;                          // timeline sits above a real monitor (seated eye line ≈ monitor top)                         // fallback timeline distance, eye height
 const TRACK_W = 0.96, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
 const CARD_W = 0.16, CARD_H = 0.09;
 /** Small icon for icon-only (short) timeline blocks. */
@@ -194,7 +195,7 @@ export class MorningDeskSystem extends createSystem({
   // ---------------------------------------------------------------- step 4: Room Zones
   private addZoneMarker(z: Zone): void {
     const m = zoneMarker(z.kind); const e = this.world.createTransformEntity(m.ring, this.deskE);
-    m.ring.position.set(...z.p); m.ring.position.y += 0.003; m.ring.rotation.set(z.surface === 'flat' ? -Math.PI / 2 : 0, 0, 0);
+    m.ring.position.set(...z.p); m.ring.position.y += 0.006; m.ring.renderOrder = 2; m.ring.rotation.set(z.surface === 'flat' ? -Math.PI / 2 : 0, 0, 0);
     if (z.surface === 'wall') { m.ring.rotation.set(0, z.yaw, 0); }
     m.ring.add(m.tag.mesh); m.tag.mesh.position.set(0, z.surface === 'flat' ? -0.11 : -0.12, 0.002); if (z.surface === 'flat') m.tag.mesh.rotation.x = Math.PI / 2 - 0.5;
     this.occl(e); this.zoneVis.set(z.id, m);
@@ -208,6 +209,11 @@ export class MorningDeskSystem extends createSystem({
   }
   private drawZoneBtn(t: string): void { const b = this.zoneBtn; if (!b) return; b.label.mesh.userData.btn = t;
     b.label.draw((g, W, H) => { panel(g, W, H, C.glassHi, C.accent, 1); let sz = Math.round(H * 0.52); g.font = `600 ${sz}px ${FONT}`; while (g.measureText(t).width > W - 20 && sz > 12) { sz--; g.font = `600 ${sz}px ${FONT}`; } text(g, t, W / 2, H / 2, sz, '#fff', 600, W, 'center'); }); }
+  /** Autoplay (&zones=1): claim a zone at a desk-local spot, same path as a real gaze + pinch claim. */
+  claimAt(local: [number, number, number], surface: 'flat' | 'wall' = 'flat'): void {
+    if (!this.claim) this.toggleClaim(); if (!this.claim) return;
+    this.claim.hit = this.desk.localToWorld(new Vector3(...local)); this.claim.surface = surface; this.claim.t = 1; this.confirmClaim();
+  }
   confirmClaim(): void {
     const c = this.claim; if (!c) return; this.claim = null; c.cursor.ring.visible = false; this.drawZoneBtn('🎯 Claim zone');
     if (!c.hit) { document.body.dataset.claim = 'none'; return; }
@@ -244,13 +250,18 @@ export class MorningDeskSystem extends createSystem({
     r.scale.setScalar(1 + 0.08 * Math.sin(c.t * 5)); r.updateMatrixWorld();
   }
   /** Room Zones: Pending cards dropped on a zone, or matching its kind, stand in the zone (desk-anchored pose). */
+  lastZone = ''; // kind of the zone the last zoneTarget() placed a card on (test hook)
   private zoneTarget(id: string, out: Vector3, q: Quaternion): { w: number; h: number; visible: boolean } | null {
     if (!this.zones.length || !this.mrFlow() || this.placeOf(id) !== 'stack') return null;
     const s = this.s; const t = s.tasks[id];
-    const zoneFor = (x: string) => { const pin = s.zoneOf?.[x]; const pz = pin ? this.zones.find((z) => z.id === pin) : undefined; return pz ?? this.zones.find((z) => zoneWants(z.kind, s.tasks[x].minutes)); };
+    // Focus always gets one card: with no 45 min+ Pending card, the must-do (else the longest) goes there
+    const long = s.stack.filter((x) => s.tasks[x] && zoneWants('focus', s.tasks[x].minutes));
+    const lead = long.length ? '' : [...s.stack].filter((x) => s.tasks[x]).sort((a, b) => (s.tasks[a].priority === 1 ? -1 : 0) - (s.tasks[b].priority === 1 ? -1 : 0) || s.tasks[b].minutes - s.tasks[a].minutes)[0] ?? '';
+    const fz = this.zones.find((z) => z.kind === 'focus');
+    const zoneFor = (x: string) => { const pin = s.zoneOf?.[x]; const pz = pin ? this.zones.find((z) => z.id === pin) : undefined; if (pz) return pz; if (x === lead && fz) return fz; return this.zones.find((z) => zoneWants(z.kind, s.tasks[x].minutes)); };
     const z = zoneFor(id); if (!z || !t) return null;
-    const mates = s.stack.filter((x) => s.tasks[x] && zoneFor(x)?.id === z.id); const i = mates.indexOf(id); if (i < 0 || i > 5) return null; // 6 cards max per zone, rest stay on the desk
-    zoneSlot(z, i, out, q); this.desk.localToWorld(out); q.premultiply(this.desk.getWorldQuaternion(new Quaternion()));
+    const mates = s.stack.filter((x) => s.tasks[x] && zoneFor(x)?.id === z.id); const i = mates.indexOf(id); if (i < 0 || i >= ZONE_CARDS) return null; // 4 cards per zone patch, the rest stay on the desk
+    this.lastZone = z.kind; zoneSlot(z, i, out, q); this.desk.localToWorld(out); q.premultiply(this.desk.getWorldQuaternion(new Quaternion()));
     return { w: CARD_W * 0.95, h: CARD_H * 0.95, visible: true };
   }
   /** Drop on a zone: the card stays there (Pending) until it is planned. */
@@ -276,7 +287,7 @@ export class MorningDeskSystem extends createSystem({
     this.gazeGlow.visible = !!it;
     if (it) { const m = it.label.mesh; const g = this.gazeGlow; m.updateMatrixWorld();
       g.position.copy(m.position).add(new Vector3(0, 0, -0.003).applyQuaternion(m.quaternion)); g.quaternion.copy(m.quaternion);
-      const sc = m.scale.x; g.scale.set((it.label.w + 0.016) * sc, (it.label.h + 0.016) * sc, 1); (g.material as MeshBasicMaterial).opacity = 0.35 + 0.2 * Math.sin(this.gazeT * 4); }
+      const sc = m.scale.x; g.scale.set((it.label.w + 0.03) * sc, (it.label.h + 0.03) * sc, 1); (g.material as MeshBasicMaterial).opacity = 0.8 + 0.2 * Math.sin(this.gazeT * 4); } // brighter, wider halo
     document.body.dataset.gaze = this.gazeId;
   }
   private evening(): boolean {
@@ -308,12 +319,12 @@ export class MorningDeskSystem extends createSystem({
     this.history.mesh.visible = false; this.drawHistory();
     // accessibility: high-contrast toggle (also ?contrast=1)
     const hb = this.button('📊 7 days', 0.11, () => { this.drawHistory(); this.history.mesh.visible = !this.history.mesh.visible; this.histT = this.history.mesh.visible ? 25 : 0; this.syncHistBtns(); }, this.rightE);
-    this.chips.push(hb.label.mesh); hb.label.mesh.position.set(-0.05, -0.15, 0.004); for (const m of [hb.label.mesh]) { (m.material as MeshBasicMaterial).depthTest = false; m.renderOrder = 12; } if (CLEAN_CAPTURE && !MR_FORCED) hb.label.mesh.visible = false;
+    this.chips.push(hb.label.mesh); hb.label.mesh.position.set(0.1, 0.215, 0.004); for (const m of [hb.label.mesh]) { (m.material as MeshBasicMaterial).depthTest = false; m.renderOrder = 12; } if (CLEAN_CAPTURE && !MR_FORCED) hb.label.mesh.visible = false;
     // 'Sample week (demo data)': clearly labelled fake week for showing the view; held in memory only, never saved or mixed with real history
     this.sampleBtn = this.button('Sample week (demo data): off', 0.27, () => this.toggleSample(), this.leftE);
     this.sampleBtn.label.mesh.position.set(0, -0.385, 0.004); this.sampleBtn.label.mesh.visible = false;
     if (TEST && !CLEAN_CAPTURE && !new URLSearchParams(location.search).has('autoplay')) this.buildTest(); // never in filming runs
-    const hc = this.button('◐ Contrast', 0.11, () => this.toggleContrast(), this.rightE); this.chips.push(hc.label.mesh); hc.label.mesh.position.set(0.075, -0.15, 0.004); (hc.label.mesh.material as MeshBasicMaterial).depthTest = false; hc.label.mesh.renderOrder = 12; // never hidden behind Meetings
+    const hc = this.button('◐ Contrast', 0.11, () => this.toggleContrast(), this.rightE); this.chips.push(hc.label.mesh); hc.label.mesh.position.set(0.225, 0.215, 0.004); (hc.label.mesh.material as MeshBasicMaterial).depthTest = false; hc.label.mesh.renderOrder = 12; // never hidden behind Meetings
     if (CLEAN_CAPTURE && !MR_FORCED) hc.label.mesh.visible = false; // the filmed v1 layout stays as recorded
     this.pendHeader = new Label(0.36, 0.05); this.pendHeader.mesh.position.set(0, 0.16, 0); this.right.add(this.pendHeader.mesh);
     this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag to plan', 30, H / 2, 20, C.ink, 700, W - 40); });
@@ -351,7 +362,7 @@ export class MorningDeskSystem extends createSystem({
 
     // Desk buttons (reachable row at the back of the desk).
     const row: [string, () => void][] = [
-      ['✨ Plan for me', () => this.runAgent(true)], [WIND_DOWN ? '🌙 Wind down' : '✓ Done', () => (WIND_DOWN ? this.openWindDown() : this.finishDay())],
+      ['📋 Plan for me', () => this.runAgent(true)], [WIND_DOWN ? '🌙 Wind down' : '✓ Done', () => (WIND_DOWN ? this.openWindDown() : this.finishDay())],
       ['? Tutorial', () => this.startTutorial()], ['↺ Demo reset', () => this.reset(true)],
     ];
     row.forEach(([t, fn], i) => {
@@ -372,7 +383,7 @@ export class MorningDeskSystem extends createSystem({
     }
     for (const z of this.zones) this.addZoneMarker(z);
     // look to target: soft accent glow behind the card the head is pointed at for 0.5 s
-    this.gazeGlow = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ color: C.accent, transparent: true, opacity: 0.55, depthWrite: false }));
+    this.gazeGlow = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ color: '#FFD27A', transparent: true, opacity: 0.85, depthWrite: false, blending: AdditiveBlending }));
     this.gazeGlow.visible = false; this.world.scene.add(this.gazeGlow);
     this.detail = new Label(0.3, 0.16); this.detail.mesh.visible = false;
     const de = this.world.createTransformEntity(this.detail.mesh, this.deskE);
@@ -505,7 +516,7 @@ export class MorningDeskSystem extends createSystem({
         const [x, y, z, r] = JSON.parse(saved) as number[];
         this.wall.position.set(x, y, z); this.wall.rotation.set(0, r, 0);
       } else {
-        this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02;
+        this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02 + WALL_UP;
         this.wall.rotation.set(0, yaw, 0);
       }
     }
@@ -521,7 +532,7 @@ export class MorningDeskSystem extends createSystem({
       const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
       g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
     };
-    side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17); side(this.testG, -36, 1.05, 0.3); // below the timeline, right of the desk // inside a ~16:9 capture FoV
+    side(this.left, 41, 0.9, -0.04); side(this.right, -38, 0.8, -0.26); side(this.testG, -36, 1.05, 0.3); // below the timeline, right of the desk // inside a ~16:9 capture FoV
     for (const pe of this.queries.planes.entities) this.tryWall(pe);
     this.placed = true; this.redrawHeader();
   }
@@ -542,7 +553,7 @@ export class MorningDeskSystem extends createSystem({
     if (n.dot(head.clone().sub(p)) < 0) n.negate();
     // project the user's gaze point onto the wall, at eye height
     const t = n.dot(p.clone().sub(head)) / Math.min(-0.2, n.dot(fwd));
-    const hit = head.clone().addScaledVector(fwd, Math.abs(t)); hit.y = head.y;
+    const hit = head.clone().addScaledVector(fwd, Math.abs(t)); hit.y = head.y + WALL_UP; // above a real monitor's top edge
     this.wall.position.copy(hit).addScaledVector(n, 0.03);
     this.wall.rotation.set(0, Math.atan2(n.x, n.z), 0);
     this.fitWall(e, Math.abs(t));
@@ -570,8 +581,8 @@ export class MorningDeskSystem extends createSystem({
     const xs = pl.polygon.map((q) => q.x), zs = pl.polygon.map((q) => q.z);
     const pw = Math.max(...xs) - Math.min(...xs), ph = Math.max(...zs) - Math.min(...zs); // plane-local extents
     const UI_W = TRACK_W, UI_H = 0.9; // timeline + header/progress above + tomorrow row below
-    const fov = 2 * dist * Math.tan((26 * Math.PI) / 180);
-    const k = Math.min(pw * 0.85 / UI_W, ph * 0.5 / UI_H * 2, fov / UI_W, 1.3);
+    const fov = 2 * dist * Math.tan((30 * Math.PI) / 180); // ±30°: titles stay readable on a far wall
+    const k = Math.min(pw * 0.85 / UI_W, ph * 0.5 / UI_H * 2, fov / UI_W, 1.6);
     this.wallScale = Math.max(0.7, k); this.wall.scale.setScalar(this.wallScale);
     this.mr.wallSize = `${pw.toFixed(2)}×${ph.toFixed(2)} m → ×${this.wallScale.toFixed(2)}`;
   }
@@ -610,7 +621,7 @@ export class MorningDeskSystem extends createSystem({
     const yaw = Math.atan2(-fwd.x, -fwd.z);
     this.desk.position.copy(head).addScaledVector(fwd, DESK_FWD); this.desk.position.y -= DESK_DOWN;
     this.desk.rotation.set(0, yaw, 0);
-    this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02; this.wall.rotation.set(0, yaw, 0);
+    this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02 + WALL_UP; this.wall.rotation.set(0, yaw, 0);
     this.layoutSides(head, yaw);
   }
   private layoutSides(head: Vector3, yaw: number): void {
@@ -618,8 +629,8 @@ export class MorningDeskSystem extends createSystem({
       const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
       g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
     };
-    side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17); side(this.testG, -36, 1.05, 0.3);
-    if (this.mrFlow()) { side(this.right, -32, 0.7, -0.22); this.avoidObstacles(head); } // below the timeline's right end
+    side(this.left, 41, 0.9, -0.04); side(this.right, -38, 0.8, -0.26); side(this.testG, -36, 1.05, 0.3);
+    if (this.mrFlow()) { side(this.right, -35, 0.7, -0.28); this.avoidObstacles(head); } // below and right of the timeline: never over its blocks
   }
   /** Nearest detected table-height horizontal plane in front of the head: the desk centre just inside its near edge. */
   private findTable(): Vector3 | null {
@@ -693,7 +704,7 @@ export class MorningDeskSystem extends createSystem({
     // passthrough matters: on a real surface the paper tray goes away and the cards lie on the real desk
     this.tray.mesh.visible = how === 'tap' || !!this.mr.vr;
     if (!this.mr.noPlanes) for (const pe of this.queries.planes.entities) this.tryWall(pe, true);
-    if (this.wallMode !== 'detected') { this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02; this.wall.rotation.set(0, yaw, 0); }
+    if (this.wallMode !== 'detected') { this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02 + WALL_UP; this.wall.rotation.set(0, yaw, 0); }
     this.mr.wall = this.wallMode === 'detected' ? 'wall plane' : `${WALL_FWD} m ahead`;
     this.layoutSides(head, gaze);
     if (this.mr.vr) { const f = this.vrRoom.getObjectByName('vr-floor'); if (f) f.position.y = -this.desk.position.y; this.mr.phase = 'done'; this.redrawHeader(); return; }
@@ -1378,7 +1389,7 @@ export class MorningDeskSystem extends createSystem({
     { on: 'drop', msg: '📌 Move it toward this timeline and open your fingers to drop it.' },
     { on: 'skip', msg: '💨 Now flick a card quickly sideways to skip it for today.' },
     { on: 'detail', msg: '🎯 Quick pinch (tap) a card to focus on it. 👍 when done.' },
-    { on: 'decide', msg: '✨ Tap "Plan for me", then 👍 keep or 👎 undo the change.' },
+    { on: 'decide', msg: '📋 Tap "Plan for me", then 👍 keep or 👎 undo the change.' },
   ];
   private startTutorial(): void { this.tutStep = 0; document.body.dataset.tutStep = '0'; this.tutorial.mesh.visible = true; this.tutorial.mesh.scale.setScalar(0.9); this.tutorialStep(); }
   private endTutorial(): void {
@@ -1475,7 +1486,7 @@ export class MorningDeskSystem extends createSystem({
     this.yesBtn.label.mesh.visible = this.noBtn.label.mesh.visible = show;
     this.agentPanel.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sky, 1);
-      text(g, show ? '✨ Your agent changed your day' : '✨ Planner', 34, 30, 24, C.sageDeep, 700);
+      text(g, show ? '📋 Your agent changed your day' : '📋 Planner', 34, 30, 24, C.sageDeep, 700);
       para(g, this.agentMsg || AGENT_LINE, 34, 56, show || this.agentMsg.length < 70 ? 27 : 23, W - 50);
     });
     this.redrawHeader();

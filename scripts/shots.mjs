@@ -11,11 +11,11 @@ while (Date.now() - T0 < 1500000) {
   const s = await p.evaluate(() => ({ mood: document.body.dataset.mood ?? '', focus: document.body.dataset.focus ?? '', zb: document.body.dataset.zonesBeat ?? '', gaze: document.body.dataset.gaze ?? '', claim: document.body.dataset.claim ?? '', wind: document.body.dataset.wind ?? '', say: [...document.querySelectorAll('div')].filter((d) => d.textContent.includes('autoplay demo')).pop()?.lastChild.textContent ?? '' })).catch(() => ({}));
   if (s.mood === 'ask') { await p.waitForTimeout(TH ? 2500 : 1500); await shot('mood-hint'); }
   if (/quick@/.test(s.claim ?? '')) { await p.waitForTimeout(TH ? 3000 : 1500); await shot('zones'); }
-  if (s.gaze && s.zb === '' && /Look/.test(s.say)) { await p.waitForTimeout(TH ? 1500 : 600); await shot('gaze-glow'); }
+  if (s.gaze && s.zb === 'gaze') await shot('gaze-glow');
   if (/Plan for me|changed your day/.test(s.say) || s.mood?.startsWith('picked')) { }
   if (/^2\/6/.test(s.say ?? '')) await shot('anchor-restored');
   if (/^3\/6/.test(s.say ?? '')) { await p.waitForTimeout(3000); await shot('replace'); }
-  if (/timer running/.test(s.say ?? '')) { await p.waitForTimeout(800); await shot('focus'); }
+  if (/timer running/.test(s.say ?? '')) await shot('focus');
   if (/^5\/6/.test(s.say ?? '')) await shot('wind');
   if (/complete|stopped/.test(s.say ?? '')) { await shot('end'); console.log(s.say); break; }
   await p.waitForTimeout(300);

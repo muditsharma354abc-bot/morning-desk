@@ -3,7 +3,7 @@
  * the IWER emulator's hands (poke, pinch, thumbs); the app's own input code decides every outcome.
  * Order: MR placement (real table + real wall) → exit + re-enter XR (anchor restore) → lean aside + poke 📍 Re-place → one Focus block → 🌙 Wind down → close day.
  */
-import { Vector3, VisibilityState, type World } from '@iwsdk/core';
+import { Quaternion, Vector3, VisibilityState, type World } from '@iwsdk/core';
 import { selectHandsInToolbar } from './autoplay.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -68,7 +68,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   };
   const thumbs = async (up: boolean) => {
     const s2 = Math.SQRT1_2, rot = up ? [0, 0, -s2, s2] : [0, 0, s2, s2];
-    const p = H(0.06, -0.18, -0.32); await move(p, 700);
+    const p = H(0.2, -0.3, -0.28); await move(p, 700); // low and right: never over the Focus / Wind down panel
     const before = snap(); R.poseId = 'thumbs-up'; pin(R, p, rot); await sleep(500); // snapshot first: a fast frame rate can fire the gesture inside the 500 ms
     await until(() => snap() !== before, 4000); await sleep(900);
     R.poseId = 'default'; pin(R, p);
@@ -105,14 +105,15 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     say('🎯 Claim a Focus zone'); await sleep(900); sys.claimAt([-0.4, 0.01, -0.1]); await sleep(2200);
     say('🎯 Claim a Quick zone'); sys.claimAt([0.42, 0.01, -0.1]); await sleep(2600);
     const id = sys.s.stack.find((x: string) => sys.items.get(x)?.label.mesh.visible && (sys.zoneTarget(x, new Vector3(), new (sys.desk.quaternion.constructor)()) && sys.lastZone === 'focus')) ?? sys.s.stack.find((x: string) => sys.items.get(x)?.label.mesh.visible);
-    const ui = Object.getOwnPropertySymbols(dev).map((k) => dev[k]?.devui?.inputLayer).find((x: any) => x?.playerRig);
-    if (id && ui) {
+    if (id) {
+      // turn the emulated head (head gaze, not eye tracking) to the card, hold, turn back
       const m = sys.items.get(id).label.mesh; const w = m.getWorldPosition(new Vector3()); const h = head(); const d = w.sub(h);
-      const y0 = ui.playerRig.rotation.y, x0 = ui.cameraRig.rotation.x;
+      const ui = Object.getOwnPropertySymbols(dev).map((k) => dev[k]?.devui?.inputLayer).find((x: any) => x?.playerRig);
+      const y0 = ui?.playerRig.rotation.y ?? 0, x0 = ui?.cameraRig.rotation.x ?? 0;
       const y1 = Math.atan2(-d.x, -d.z), x1 = Math.atan2(d.y, Math.hypot(d.x, d.z));
-      const aim = (k: number, a: number, b: number, c: number, e: number) => { ui.playerRig.rotation.y = a + (b - a) * k; ui.cameraRig.rotation.x = c + (e - c) * k; ui.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui.cameraRig.getWorldQuaternion(new (m.quaternion.constructor)())); };
+      const aim = (k: number, fy: number, ty: number, fx: number, tx: number) => { if (!ui) return; ui.playerRig.rotation.y = fy + (ty - fy) * k; ui.cameraRig.rotation.x = fx + (tx - fx) * k; ui.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui.cameraRig.getWorldQuaternion(new Quaternion())); };
       say('👀 Look to target: the card you face glows');
-      await tween(900, (k) => aim(k, y0, y1, x0, x1)); await until(() => document.body.dataset.gaze === id, 1500); log(`gaze${document.body.dataset.gaze === id ? '+' : '-'}`); document.body.dataset.zonesBeat = document.body.dataset.gaze === id ? 'gaze' : 'nogaze'; await sleep(2000);
+      await tween(900, (k) => aim(k, y0, y1, x0, x1)); await until(() => document.body.dataset.gaze === id, 4000); log(`gaze${document.body.dataset.gaze === id ? '+' : '-'}`); document.body.dataset.zonesBeat = document.body.dataset.gaze === id ? 'gaze' : 'nogaze'; await sleep(2000);
       await tween(900, (k) => aim(k, y1, y0, x1, x0));
     }
   }

@@ -82,7 +82,7 @@ export class MorningDeskSystem extends createSystem({
   private detail!: Label;
   private tip!: Label; private tipId = '';
   private hoverId = '';
-  private thumb = { dir: 0, t: 0 };
+  thumb = { dir: 0, t: 0 }; // read by autoplay
   private restoreWall: number[] | null = null; private wallSaved = false;
   private tutorial!: Label;
   private marker!: Mesh;

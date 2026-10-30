@@ -67,8 +67,8 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const thumbs = async (up: boolean) => {
     const s2 = Math.SQRT1_2, rot = up ? [0, 0, -s2, s2] : [0, 0, s2, s2];
     const p = H(0.06, -0.18, -0.32); await move(p, 700);
-    R.poseId = 'thumbs-up'; pin(R, p, rot); await sleep(500);
-    const before = snap(); await until(() => snap() !== before, 4000); await sleep(900);
+    const before = snap(); R.poseId = 'thumbs-up'; pin(R, p, rot); await sleep(500); // snapshot first: a fast frame rate can fire the gesture inside the 500 ms
+    await until(() => snap() !== before, 4000); await sleep(900);
     R.poseId = 'default'; pin(R, p);
   };
   const log = (x: string) => { document.body.dataset.v2log = `${document.body.dataset.v2log ?? ''}${x};`; };
@@ -119,7 +119,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     say('5/6  🌙 Wind down: today in real numbers');
     // state-driven so a missed poke just retries (deterministic outcome: must-dos kept, the rest dropped)
     let said = 0; const t0 = performance.now();
-    while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 240000) {
+    while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 360000) {
       const w = sys.wind;
       if (sys.pending) { log('keep'); await thumbs(true); await sleep(600); continue; }
       if (!w) { log('open'); await press('Wind down'); await sleep(said ? 400 : 1200); continue; }
@@ -127,7 +127,9 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       if (w.step <= w.list.length) {
         if (said < 1) { said = 1; say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop'); }
         const t = sys.s.tasks[w.list[w.step - 1]]; await sleep(900); log(t.priority === 1 ? 'up' : 'down');
-        await thumbs(t.priority === 1); // must-do → keep · others → drop
+        const at = w.step; await thumbs(t.priority === 1); // must-do → keep · others → drop
+        if (sys.wind && sys.wind.step === at) { log('poke'); await press(t.priority === 1 ? 'Tomorrow' : 'Drop'); } // gesture missed (slow/fast frame rate): same choice by poke
+        await until(() => sys.thumb.dir === 0, 1500); await sleep(300); // let the thumb gesture settle so a late 👎 can't hit the next step (👎 on Close day = Back)
         continue;
       }
       if (said < 2) { said = 2; await sleep(2000); say('6/6  close the day: tomorrow starts with these'); }

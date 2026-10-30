@@ -16,7 +16,7 @@ import { loadFonts } from './style.js';
 
 void loadFonts().then(() => World.create(document.getElementById('scene-container') as HTMLDivElement, projectOptions).then((world) => {
   // depth occlusion: optional feature (iwsdk.config.json); without a granted depth-sensing feature the system logs once and does nothing
-  world.registerSystem(DepthSensingSystem);
+  if (new URLSearchParams(location.search).has('depth')) world.registerSystem(DepthSensingSystem); // occlusion opt-in (?depth=1) until it ships
   world.registerSystem(MorningDeskSystem);
   if (new URLSearchParams(location.search).has('clean')) void import('./clean.js').then((m) => m.enableCleanCapture(world)); // capture-only
   { const q = new URLSearchParams(location.search); if (q.has('demo') || q.has('clean')) void import('./hide-lamp.js').then((m) => m.enableLampHide()); } // capture-only

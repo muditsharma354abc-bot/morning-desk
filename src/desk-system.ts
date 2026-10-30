@@ -82,7 +82,7 @@ export class MorningDeskSystem extends createSystem({
   private yesBtn!: Btn; private noBtn!: Btn;
   private pending: PlanChange | null = null;
   private declined = new Set<string>();
-  private agentMsg = '';
+  private agentMsg = ''; private agentDrawn = '';
   private agentTimer = 0;
   private justKept = false;
   private handsSet = false;
@@ -747,7 +747,9 @@ export class MorningDeskSystem extends createSystem({
     this.buttons.set(entity.index, b);
     return b;
   }
-  private occl(e: Entity): void { if (!e.hasComponent(DepthOccludable)) e.addComponent(DepthOccludable, { mode: OcclusionShadersMode.SoftOcclusion }); }
+  private modalKey = ''; private modalHidden: Mesh[] = [];
+  private occl(e: Entity): void { if (!new URLSearchParams(location.search).has('depth')) return; // occlusion opt-in (?depth=1) until it ships
+    if (!e.hasComponent(DepthOccludable)) e.addComponent(DepthOccludable, { mode: OcclusionShadersMode.SoftOcclusion }); }
   private syncItems(): void {
     const live = new Set(Object.keys(this.s.tasks));
     for (const [id, it] of this.items) if (!live.has(id)) { it.entity.dispose(); this.items.delete(id); }
@@ -1268,7 +1270,7 @@ export class MorningDeskSystem extends createSystem({
     });
   }
   private redrawAgent(): void {
-    const show = !!this.pending;
+    const show = !!this.pending; this.agentDrawn = this.agentMsg;
     this.yesBtn.label.mesh.visible = this.noBtn.label.mesh.visible = show;
     this.agentPanel.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sky, 1);
@@ -1454,6 +1456,17 @@ export class MorningDeskSystem extends createSystem({
   private liftScale(it: Item, k: number): void { const s = it.label.mesh.scale.x; it.label.mesh.scale.setScalar(s + (1.12 - s) * k); }
   // ---------------------------------------------------------------- frame
   update(delta: number): void {
+    // v2.1 MR stack-up: while Focus or Wind down is open, the wall boards step aside so no two panels overlap;
+    // idle planner header (nothing pending, no message) is hidden in MR
+    { const mrOn = this.mrFlow(); const modal = mrOn && (!!this.focus || !!this.wind);
+      const focusOn = mrOn && !!this.focus; // Focus hides all boards; Wind down keeps the timeline + meetings visible (panel sits below the timeline)
+      for (const e of [this.leftE, this.wallE]) if (e?.object3D) e.object3D.visible = !focusOn;
+      if (this.rightE?.object3D) this.rightE.object3D.visible = !modal;
+      this.agentPanel.mesh.visible = !modal && (!mrOn || !!this.pending || !!this.agentDrawn);
+      // cards: Focus hides every card, Wind down hides the Pending ones (timeline stays); edge-triggered so other visibility rules keep working
+      const key = focusOn ? 'focus' : modal ? 'wind' : '';
+      if (key !== this.modalKey) { for (const m of this.modalHidden) m.visible = true; this.modalHidden = [];
+        this.modalKey = key; } }
     // flat page: widen the camera's field of view on narrow/tall windows so the whole layout fits (≈84° across)
     if (!this.inXR()) { const cam = this.world.camera as unknown as { aspect: number; fov: number; updateProjectionMatrix(): void };
       if (cam.aspect && cam.aspect !== this.flatFovAspect) { this.flatFovAspect = cam.aspect; cam.fov = Math.max(50, (2 * Math.atan(Math.tan((42 * Math.PI) / 180) / cam.aspect) * 180) / Math.PI); cam.updateProjectionMatrix(); } }
@@ -1484,7 +1497,7 @@ export class MorningDeskSystem extends createSystem({
       const tgt = this.target(it, out, outQ);
       const place = this.placeOf(it.id);
       this.drawItem(it, place, tgt.w, tgt.h);
-      it.label.mesh.visible = tgt.visible;
+      it.label.mesh.visible = tgt.visible && !(this.modalKey && (this.modalKey === 'focus' || this.placeOf(it.id) !== 'timeline'));
       const hov = this.hoverId === it.id || it.entity.hasComponent(Hovered);
       if (hov) out.add(this.tmp.set(0, 0, 0.018).applyQuaternion(outQ)); // lift toward the user
       it.label.mesh.position.lerp(out, k);

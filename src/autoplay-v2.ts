@@ -105,7 +105,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 240000) {
       const w = sys.wind;
       if (sys.pending) { log('keep'); await thumbs(true); await sleep(600); continue; }
-      if (!w) { log('open'); await press('Wind down'); await sleep(said ? 400 : 3600); continue; }
+      if (!w) { log('open'); await press('Wind down'); await sleep(said ? 400 : 1200); continue; }
       if (w.step === 0) { if (!said) { await sleep(3500); } log('next'); await press('Next'); continue; }
       if (w.step <= w.list.length) {
         if (said < 1) { said = 1; say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop'); }

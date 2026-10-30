@@ -7,7 +7,18 @@ export const C = {
   prio: { 1: '#FFB547', 2: '#8AB4F8', 3: '#8FD1A5' } as Record<number, string>,
 };
 /** Glass alpha for panels (style reference: #14161C @ 0.75). */
-export const GLASS_ALPHA = 0.75;
+export let GLASS_ALPHA = 0.75;
+/** High-contrast mode (button or ?contrast=1): opaque black panels, pure white text, thicker rims. */
+export const HC = { on: new URLSearchParams(location.search).has('contrast') };
+const BASE = { ...{} } as Record<string, string>;
+export function setContrast(on: boolean): void {
+  if (!Object.keys(BASE).length) for (const k of ['glass', 'glassHi', 'glassLo', 'ink', 'mute', 'paper']) BASE[k] = (C as unknown as Record<string, string>)[k];
+  HC.on = on; GLASS_ALPHA = on ? 1 : 0.75;
+  const c = C as unknown as Record<string, string>;
+  for (const k of Object.keys(BASE)) c[k] = BASE[k];
+  if (on) { c.glass = '#000000'; c.paper = '#000000'; c.glassHi = '#000000'; c.glassLo = '#1A1A1A'; c.ink = '#FFFFFF'; c.mute = '#FFFFFF'; }
+}
+if (HC.on) setContrast(true);
 /** Inter (SIL OFL 1.1, public/fonts/inter/OFL.txt), the typeface Meta recommends for Horizon OS UI. */
 export const FONT = 'Inter, system-ui, -apple-system, Segoe UI, sans-serif';
 /** Load Inter before the first canvas is drawn (falls back to system-ui after 2 s). */

@@ -6,8 +6,8 @@ import {
 import { Label, panel, para, text } from './label.js';
 import { LAMP } from './hide-lamp.js';
 import { PlanChange, RulePlanner } from './planner.js';
-import { C, FONT, sfx, unlockAudio } from './style.js';
-import { clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, layout, load, PlanState, save, scheduledMinutes } from './state.js';
+import { C, FONT, HC, setContrast, sfx, unlockAudio } from './style.js';
+import { clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, lastWeek, layout, load, PlanState, save, scheduledMinutes } from './state.js';
 import { BackSide, MeshBasicMaterial } from '@iwsdk/core';
 /** Demo days run the focus timer accelerated (and say so on the panel). */
 const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
@@ -95,7 +95,8 @@ export class MorningDeskSystem extends createSystem({
   private meetingLabels: Label[] = [];
   private deskRow: Mesh[] = [];
   // P1 spatial layout: meetings board on the left, pending board on the right, progress in the background
-  private left = new Group(); private right = new Group();
+  private left = new Group(); private right = new Group(); private leftE!: Entity;
+  private history!: Label; private histT = 0; private wallScale = 1; private tableYaw: number | null = null;
   private meetBoard!: Label; private pendHeader!: Label; private progress!: Label;
   private focusPanel!: Label; private focusE!: Entity; private focusBtns: Btn[] = [];
   private dim!: Mesh;
@@ -123,8 +124,13 @@ export class MorningDeskSystem extends createSystem({
     this.deskE = this.world.createTransformEntity(this.desk, { persistent: true });
     this.wallE = this.world.createTransformEntity(this.wall, { persistent: true });
     this.setBackground(true);
-    this.world.createTransformEntity(this.left, { persistent: true }); this.world.createTransformEntity(this.right, { persistent: true });
+    this.leftE = this.world.createTransformEntity(this.left, { persistent: true }); this.world.createTransformEntity(this.right, { persistent: true });
     this.meetBoard = new Label(0.4, 0.3); this.left.add(this.meetBoard.mesh);
+    // between-session progress: last 7 days from stored history only (never in demo runs, which use fixed demo data)
+    this.history = new Label(0.4, 0.13); this.history.mesh.position.set(0, -0.235, 0); this.left.add(this.history.mesh);
+    this.history.mesh.visible = false; this.drawHistory();
+    // accessibility: high-contrast toggle (also ?contrast=1)
+    const hc = this.button('◐ Contrast', 0.11, () => this.toggleContrast(), this.leftE); hc.label.mesh.position.set(0.13, 0.175, 0.004); if (CLEAN_CAPTURE && !MR_FORCED) hc.label.mesh.visible = false; // the filmed v1 layout stays as recorded
     this.pendHeader = new Label(0.36, 0.05); this.pendHeader.mesh.position.set(0, 0.16, 0); this.right.add(this.pendHeader.mesh);
     this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag to plan', 30, H / 2, 20, C.ink, 700, W - 40); });
     this.progress = new Label(0.7, 0.08); this.progress.mesh.position.set(0, 0.44, -0.25); this.wall.add(this.progress.mesh);
@@ -189,11 +195,13 @@ export class MorningDeskSystem extends createSystem({
       ['25 min', -0.165, 0.09, () => this.setFocusLength(25)], ['50 min', -0.055, 0.09, () => this.setFocusLength(50)],
       ['+15 min', 0.055, 0.09, () => this.moreTime()], ['✓ Done', 0.165, 0.09, () => this.endFocus(true)],
       ['✕ Exit', 0.19, -0.17, () => this.endFocus(false)],
+      // button alternatives to pinch-drag (plan it) and flick (skip)
+      ['📅 Plan it', 0.02, 0.1, () => this.planFromFocus()], ['⏭ Skip', 0.11, 0.07, () => this.skipFromFocus()],
     ];
     for (const [t, x, w, fn] of fb) {
-      const b = this.button(t, w, fn, this.focusE); b.label.mesh.position.set(x, t === '✕ Exit' ? 0.11 : -0.105, 0.004); this.focusBtns.push(b);
+      const b = this.button(t, w, fn, this.focusE); b.label.mesh.position.set(x, /Exit|Plan it|Skip/.test(t) ? 0.11 : -0.105, 0.004); this.focusBtns.push(b);
     }
-    this.focusBtns[4].label.resize(0.07, 0.034);
+    for (const i of [4, 5, 6]) this.focusBtns[i].label.resize(i === 5 ? 0.1 : 0.07, 0.034);
     // passthrough dimmer: a dark shell around the head while focusing
     this.dim = new Mesh(new SphereGeometry(2.5, 24, 16), new MeshBasicMaterial({ color: '#0b0f0d', transparent: true, opacity: 0, side: BackSide, depthWrite: false }));
     this.dim.renderOrder = -1; this.dim.visible = false; scene.add(this.dim);
@@ -248,6 +256,8 @@ export class MorningDeskSystem extends createSystem({
       for (const id of ['hud', 'hint']) { const el = document.getElementById(id); if (el) el.style.display = this.inXR() ? 'none' : ''; }
     }));
     this.hookDom();
+    if (!IS_DEMO && (this.s.history ?? []).length) { this.history.mesh.visible = true; this.histT = 25; } // shown on open, then out of the way
+    if (HC.on) document.body.dataset.contrast = '1';
     this.syncItems();
     this.redrawAll();
     const q = new URLSearchParams(location.search);
@@ -323,6 +333,7 @@ export class MorningDeskSystem extends createSystem({
     const hit = head.clone().addScaledVector(fwd, Math.abs(t)); hit.y = head.y;
     this.wall.position.copy(hit).addScaledVector(n, 0.03);
     this.wall.rotation.set(0, Math.atan2(n.x, n.z), 0);
+    this.fitWall(e, Math.abs(t));
     this.wallMode = 'detected';
     if (force) { this.redrawHeader(); return; } // MR flow anchors desk + wall together
     if (!this.wallE.hasComponent(XRAnchor)) this.wallE.addComponent(XRAnchor); // world-locked to the real wall
@@ -338,8 +349,20 @@ export class MorningDeskSystem extends createSystem({
     return MR_FORCED || !(window as unknown as { IWER_DEVICE?: unknown }).IWER_DEVICE;
   }
   /** How the desk / wall were placed this session (shown on the header, read by tests/autoplay). */
-  mr: { phase: 'idle' | 'restore' | 'scan' | 'hit' | 'tap' | 'anchor' | 'done'; t: number; desk: string; wall: string; head?: Vector3; fwd?: Vector3; hit?: XRHitTestSource; hitReq?: boolean; tapped?: boolean; vr?: boolean; noPlanes?: boolean; blocked?: string } = { phase: 'idle', t: 0, desk: '', wall: '' };
+  mr: { phase: 'idle' | 'restore' | 'scan' | 'hit' | 'tap' | 'anchor' | 'done'; t: number; desk: string; wall: string; head?: Vector3; fwd?: Vector3; hit?: XRHitTestSource; hitReq?: boolean; tapped?: boolean; vr?: boolean; wallSize?: string; deskYaw?: string; noPlanes?: boolean; blocked?: string } = { phase: 'idle', t: 0, desk: '', wall: '' };
   private replaceBtn?: Btn; private placeHint!: Label;
+  /** Size the timeline to the detected wall: ~85% of its width / half its height, clamped to a comfortable seated FoV (±26° at that distance). */
+  private fitWall(e: Entity, dist: number): void {
+    const pl = e.getValue(XRPlane, '_plane') as { polygon?: DOMPointReadOnly[] } | undefined;
+    if (!pl?.polygon?.length) return;
+    const xs = pl.polygon.map((q) => q.x), zs = pl.polygon.map((q) => q.z);
+    const pw = Math.max(...xs) - Math.min(...xs), ph = Math.max(...zs) - Math.min(...zs); // plane-local extents
+    const UI_W = TRACK_W, UI_H = 0.9; // timeline + header/progress above + tomorrow row below
+    const fov = 2 * dist * Math.tan((26 * Math.PI) / 180);
+    const k = Math.min(pw * 0.85 / UI_W, ph * 0.5 / UI_H * 2, fov / UI_W, 1.3);
+    this.wallScale = Math.max(0.7, k); this.wall.scale.setScalar(this.wallScale);
+    this.mr.wallSize = `${pw.toFixed(2)}×${ph.toFixed(2)} m → ×${this.wallScale.toFixed(2)}`;
+  }
   private session(): XRSession | null { return this.world.renderer.xr.getSession(); }
   private detach(e: Entity, o: Group): void {
     if (e.hasComponent(XRAnchor)) e.removeComponent(XRAnchor);
@@ -348,7 +371,7 @@ export class MorningDeskSystem extends createSystem({
   /** Session start: restore last session's anchored desk + wall, else scan for a real table + wall. */
   private mrBegin(): void {
     this.detach(this.deskE, this.desk); this.detach(this.wallE, this.wall);
-    this.wallMode = 'fallback'; this.restored = false;
+    this.wallMode = 'fallback'; this.restored = false; this.wallScale = 1; this.wall.scale.setScalar(1); this.tableYaw = null;
     const cam = this.headCam(); cam.updateMatrixWorld();
     const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
     const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(this.q)); fwd.y = 0; fwd.normalize();
@@ -401,7 +424,14 @@ export class MorningDeskSystem extends createSystem({
       if (d > 0.9 || dir.lengthSq() < 1e-6 || dir.normalize().dot(fwd) < 0.3) continue;
       // desk centre: ~DESK_FWD (40 cm) ahead of the user, but never outside the surface's near edge
       const at = inside ? fl.clone().addScaledVector(fwd, DESK_FWD) : near.clone().addScaledVector(dir, 0.18); at.y = c.y + 0.004;
-      if (d < bestD) { bestD = d; best = at; }
+      // square the desk to the table: face along the normal of the table edge nearest the user (if within 35° of gaze)
+      let eb = 0, ed = 1e9;
+      for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length], ab = b.clone().sub(a);
+        const t = Math.max(0, Math.min(1, fl.clone().sub(a).dot(ab) / Math.max(1e-6, ab.lengthSq()))); const dd = a.clone().addScaledVector(ab, t).distanceTo(fl); if (dd < ed) { ed = dd; eb = i; } }
+      const ea = pts[eb], ee = pts[(eb + 1) % pts.length]; const en = new Vector3(-(ee.z - ea.z), 0, ee.x - ea.x).normalize();
+      if (en.dot(fwd) < 0) en.negate();
+      const yawE = en.dot(fwd) > Math.cos((35 * Math.PI) / 180) ? Math.atan2(-en.x, -en.z) : null;
+      if (d < bestD) { bestD = d; best = at; this.tableYaw = yawE; }
     }
     return best;
   }
@@ -434,7 +464,9 @@ export class MorningDeskSystem extends createSystem({
     return null;
   }
   private deskFound(at: Vector3, how: string): void {
-    const head = this.mr.head!, fwd = this.mr.fwd!; const yaw = Math.atan2(-fwd.x, -fwd.z);
+    const head = this.mr.head!, fwd = this.mr.fwd!; const gaze = Math.atan2(-fwd.x, -fwd.z);
+    const yaw = how === 'table plane' && this.tableYaw !== null ? this.tableYaw : gaze;
+    this.mr.deskYaw = `${(((yaw - gaze) * 180) / Math.PI).toFixed(1)}° from gaze${yaw !== gaze ? ' (table edge)' : ''}`;
     this.desk.position.copy(at); this.desk.rotation.set(0, yaw, 0);
     this.mr.desk = how; this.placeHint.mesh.visible = false;
     // passthrough matters: on a real surface the paper tray goes away and the cards lie on the real desk
@@ -442,7 +474,7 @@ export class MorningDeskSystem extends createSystem({
     if (!this.mr.noPlanes) for (const pe of this.queries.planes.entities) this.tryWall(pe, true);
     if (this.wallMode !== 'detected') { this.wall.position.copy(head).addScaledVector(fwd, WALL_FWD); this.wall.position.y = head.y + 0.02; this.wall.rotation.set(0, yaw, 0); }
     this.mr.wall = this.wallMode === 'detected' ? 'wall plane' : `${WALL_FWD} m ahead`;
-    this.layoutSides(head, yaw);
+    this.layoutSides(head, gaze);
     if (this.mr.vr) { const f = this.vrRoom.getObjectByName('vr-floor'); if (f) f.position.y = -this.desk.position.y; this.mr.phase = 'done'; this.redrawHeader(); return; }
     this.deskE.addComponent(XRAnchor); this.wallE.addComponent(XRAnchor);
     this.mr.phase = 'anchor'; this.mr.t = 0; this.redrawHeader();
@@ -455,12 +487,12 @@ export class MorningDeskSystem extends createSystem({
     m.t += delta;
     const anchored = () => this.deskE.hasComponent(XRAnchor) && !!this.deskE.getValue(XRAnchor, 'attached') && !!this.wallE.getValue(XRAnchor, 'attached');
     if (m.phase === 'restore') {
-      const saved = JSON.parse(localStorage.getItem(MR_KEY) ?? 'null') as { uuid: string; desk: number[]; wall: number[]; how: string; wall2: string; tray: boolean } | null;
+      const saved = JSON.parse(localStorage.getItem(MR_KEY) ?? 'null') as { uuid: string; desk: number[]; wall: number[]; how: string; wall2: string; tray: boolean; ws?: number } | null;
       const uuid = localStorage.getItem(ANCHOR_UUID_KEY);
       // IWSDK deletes its UUID when restorePersistentAnchor fails, then makes a new one: a different UUID = a different origin
       if (!saved || (m.t > 0.3 && uuid !== saved.uuid)) { this.mrForget('anchor not restored'); return; }
       if (m.t < 1.2 || !anchored()) { if (m.t > 4) this.mrForget('anchor timeout'); return; }
-      this.setPose(this.desk, saved.desk); this.setPose(this.wall, saved.wall);
+      this.setPose(this.desk, saved.desk); this.setPose(this.wall, saved.wall); this.wallScale = saved.ws ?? 1; this.wall.scale.setScalar(this.wallScale);
       this.tray.mesh.visible = saved.tray; this.wallMode = 'detected'; this.restored = true;
       m.desk = `restored (${saved.how})`; m.wall = `restored (${saved.wall2})`; m.phase = 'done';
       this.desk.updateMatrixWorld(true); const dp = this.desk.getWorldPosition(new Vector3()); const q = this.desk.getWorldQuaternion(new Quaternion());
@@ -492,7 +524,7 @@ export class MorningDeskSystem extends createSystem({
     if (m.phase === 'anchor') {
       const uuid = localStorage.getItem(ANCHOR_UUID_KEY);
       if (anchored() && uuid) {
-        localStorage.setItem(MR_KEY, JSON.stringify({ uuid, desk: this.poseOf(this.desk), wall: this.poseOf(this.wall), how: m.desk, wall2: m.wall, tray: this.tray.mesh.visible }));
+        localStorage.setItem(MR_KEY, JSON.stringify({ uuid, desk: this.poseOf(this.desk), wall: this.poseOf(this.wall), how: m.desk, wall2: m.wall, tray: this.tray.mesh.visible, ws: this.wallScale }));
         m.phase = 'done'; this.redrawHeader();
       } else if (m.t > 5) { m.phase = 'done'; m.wall += ' · not saved (no persistent anchor)'; this.redrawHeader(); }
     }
@@ -565,6 +597,7 @@ export class MorningDeskSystem extends createSystem({
   }
   private closeWind(): void { this.wind = null; this.windPanel.mesh.visible = false; delete document.body.dataset.wind; }
   private closeDay(): void {
+    queueMicrotask(() => this.drawHistory());
     const w = this.wind!; const s = this.s;
     for (const id of w.dropped) {
       s.timeline = s.timeline.filter((x) => x !== id); s.tomorrow = s.tomorrow.filter((x) => x !== id); s.stack = s.stack.filter((x) => x !== id);
@@ -719,12 +752,12 @@ export class MorningDeskSystem extends createSystem({
       const w = Math.max(0.03, (sl.end - sl.start) * this.pxPerM() - 0.006);
       out.set(-TRACK_W / 2 + start * this.pxPerM() + w / 2 + 0.003, 0, 0.006);
       this.wall.localToWorld(out); this.wall.getWorldQuaternion(outQ);
-      return { w, h: TRACK_H, visible: true };
+      return { w: w * this.wallScale, h: TRACK_H * this.wallScale, visible: true };
     }
     if (place === 'tomorrow') {
       const i = s.tomorrow.indexOf(it.id);
       out.set(-TRACK_W / 2 + 0.1 + i * 0.17, -0.37, 0.006); this.wall.localToWorld(out); this.wall.getWorldQuaternion(outQ);
-      return { w: 0.16, h: 0.045, visible: true };
+      return { w: 0.16 * this.wallScale, h: 0.045 * this.wallScale, visible: true };
     }
     if (place === 'skipped') {
       out.set(0.7, -0.2, 0); this.desk.localToWorld(out); this.desk.getWorldQuaternion(outQ);
@@ -862,6 +895,46 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- streak, tutorial, details
+  /** Focus-panel button alternative to pinch-dragging a card onto the wall timeline (appends it). */
+  private planFromFocus(): void {
+    const id = this.focus?.id; if (!id) return; this.endFocus(false);
+    const s = this.s, strip = (a: string[]) => a.filter((x) => x !== id);
+    s.stack = strip(s.stack); s.tomorrow = strip(s.tomorrow); s.skipped = strip(s.skipped); s.timeline = [...strip(s.timeline), id];
+    sfx.drop(); this.tutEvent('drop'); this.commit();
+  }
+  /** Focus-panel button alternative to the sideways flick (skip for today). */
+  private skipFromFocus(): void {
+    const id = this.focus?.id; if (!id) return; this.endFocus(false);
+    const s = this.s, strip = (a: string[]) => a.filter((x) => x !== id);
+    s.stack = strip(s.stack); s.timeline = strip(s.timeline); s.tomorrow = strip(s.tomorrow); s.skipped.push(id);
+    sfx.skip(); this.tutEvent('skip'); this.commit();
+  }
+  toggleContrast(): void {
+    setContrast(!HC.on); document.body.dataset.contrast = HC.on ? '1' : '0';
+    for (const l of Label.all) l.redraw();
+    for (const it of this.items.values()) it.drawnKey = '';
+    this.redrawAll(); this.drawHistory();
+    const el = document.getElementById('btn-contrast'); if (el) el.textContent = HC.on ? '◐ Contrast: on' : '◐ Contrast';
+  }
+  /** Last 7 days, measured only: done count + focus minutes per closed day; blank days stay blank. */
+  private drawHistory(): void {
+    const wk = lastWeek(this.s); const logs = wk.filter((x) => x.log);
+    this.history.draw((g, W, H) => {
+      panel(g, W, H, C.paper, C.accent, 0.95);
+      const tot = logs.reduce((a, x) => a + x.log!.focus, 0), done = logs.reduce((a, x) => a + x.log!.done, 0);
+      text(g, 'Last 7 days', 28, 24, 16, C.ink, 700);
+      text(g, `${done} done · ${dur(tot)} focus · ${logs.length}/7 days`, W - 18, 24, 12, C.mute, 500, W - 150, 'right');
+      const max = Math.max(1, ...logs.map((x) => x.log!.focus));
+      const cw = (W - 56) / 7;
+      wk.forEach((x, i) => {
+        const cx = 28 + i * cw + cw / 2, base = H - 26;
+        if (x.log) { const h = Math.max(4, (H - 74) * x.log.focus / max); g.fillStyle = C.accent; g.beginPath(); g.roundRect(cx - cw * 0.3, base - h, cw * 0.6, h, 4); g.fill();
+          text(g, `${x.log.done}✓`, cx, base - h - 10, 12, C.ink, 600, cw, 'center'); }
+        else { g.fillStyle = C.mute; g.fillRect(cx - cw * 0.3, base - 2, cw * 0.6, 2); }
+        text(g, 'SMTWTFS'[new Date(x.d + 'T12:00:00Z').getUTCDay()], cx, H - 12, 11, C.mute, 600, cw, 'center');
+      });
+    });
+  }
   /** Streak is a plain day count (v2: no plant / growth reward). */
   private drawStreak(): void {
     this.streakLabel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, `${this.s.streak}-day streak`, W / 2, H / 2, 15, C.sageDeep, 600, W - 10, 'center'); });
@@ -912,6 +985,7 @@ export class MorningDeskSystem extends createSystem({
     document.body.dataset.focus = id; // test/automation hook, not rendered
     this.focus = { id, length: 25, t0: performance.now(), base: 0, phase: 'run', shown: '' };
     this.focusPanel.mesh.visible = true; this.focusPanel.mesh.scale.setScalar(0.8);
+    this.focusBtns[5].label.mesh.visible = this.placeOf(id) !== 'timeline';
     this.placeInView(this.focusPanel.mesh, 0.62, -0.15);
     this.dim.visible = true; sfx.pick();
   }
@@ -1173,6 +1247,8 @@ export class MorningDeskSystem extends createSystem({
     if (WIND_DOWN) { const el = document.getElementById('btn-done'); if (el) el.textContent = '🌙 Wind down'; }
     bind('btn-tutorial', () => this.startTutorial());
     bind('btn-demo', () => this.reset(true));
+    bind('btn-contrast', () => this.toggleContrast());
+    bind('btn-history', () => { this.drawHistory(); this.history.mesh.visible = !this.history.mesh.visible; this.histT = this.history.mesh.visible ? 25 : 0; });
   }
   /** Screen-space pick (robust in the flat view): nearest item whose projected rectangle contains the pointer. */
   private pickAt(n: Vector2, withButtons = false): string | undefined {
@@ -1305,6 +1381,7 @@ export class MorningDeskSystem extends createSystem({
   private liftScale(it: Item, k: number): void { const s = it.label.mesh.scale.x; it.label.mesh.scale.setScalar(s + (1.12 - s) * k); }
   // ---------------------------------------------------------------- frame
   update(delta: number): void {
+    if (this.histT > 0) { this.histT -= delta; if (this.histT <= 0) this.history.mesh.visible = false; }
     if (this.placeDelay > 0) this.placeDelay -= delta;
     else if (!this.placed) this.place();
     const out = this.tmp2, outQ = new Quaternion();

@@ -11,6 +11,8 @@ export interface Task {
   actual?: number;  // measured focus minutes once done (planned = minutes)
 }
 /** Fixed calendar event (not movable by the planner). */
+/** One closed day, as measured: tasks marked done and focus minutes timed by the app. */
+export interface DayLog { d: string; done: number; focus: number; }
 export interface Meeting { id: string; title: string; start: number; minutes: number; }
 export interface PlanState {
   tasks: Record<string, Task>;
@@ -28,6 +30,7 @@ export interface PlanState {
   conflictsFixed?: number;
   carry?: string[];        // v2 wind-down: tasks rolled into tomorrow (tomorrow's plan starts with them)
   carriedIn?: number;      // how many came in this morning (for the morning message)
+  history?: DayLog[];      // closed days, newest last (real measured data only; max 30)
 }
 export const IS_DEMO = new URLSearchParams(location.search).has('demo');
 // demo runs keep their own key so they never overwrite (or mark the tutorial seen for) a real visit
@@ -127,6 +130,12 @@ export function save(s: PlanState): void {
   try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ }
 }
 export const clone = (s: PlanState): PlanState => JSON.parse(JSON.stringify(s));
+/** The last 7 calendar days ending yesterday-or-today, from stored history only (missing days = null, never invented). */
+export function lastWeek(s: PlanState): { d: string; log: DayLog | null }[] {
+  const out: { d: string; log: DayLog | null }[] = []; const end = Date.now() + DAY_SHIFT;
+  for (let i = 6; i >= 0; i--) { const d = new Date(end - i * 864e5).toISOString().slice(0, 10); out.push({ d, log: s.history?.find((x) => x.d === d) ?? null }); }
+  return out;
+}
 /** Minutes from day start to the end of the last block (meetings included). */
 export const scheduledMinutes = (s: PlanState) => (s.timeline.length ? layout(s).end - s.dayStart : 0);
 /** ?nextday=1 (test only): pretend it is tomorrow, to verify the wind-down → morning rollover. */
@@ -136,6 +145,8 @@ export const today = () => new Date(Date.now() + DAY_SHIFT).toISOString().slice(
 /** Marks today's ritual complete; extends or resets the streak. Returns new streak. */
 export function completeDay(s: PlanState): number {
   const d = today();
+  const log: DayLog = { d, done: Object.values(s.tasks).filter((x) => x.done).length, focus: Math.round(s.focusMinutes ?? 0) };
+  s.history = [...(s.history ?? []).filter((x) => x.d !== d), log].slice(-30);
   if (s.lastDone === d) return s.streak;
   const y = new Date(Date.now() + DAY_SHIFT - 864e5).toISOString().slice(0, 10);
   s.streak = s.lastDone === y || s.lastDone === '' ? s.streak + 1 : 1;

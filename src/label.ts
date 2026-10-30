@@ -1,10 +1,14 @@
 import { CanvasTexture, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from '@iwsdk/core';
-import { C, FONT, GLASS_ALPHA } from './style.js';
+import { C, FONT, GLASS_ALPHA, HC } from './style.js';
 
 const PX = 1000; // canvas pixels per metre
 
 /** A flat rounded card mesh whose face is drawn with Canvas2D. */
 export class Label {
+  /** Every label, so a palette change (high contrast) can redraw them all with their last draw function. */
+  static all = new Set<Label>();
+  private last?: (g: CanvasRenderingContext2D, W: number, H: number) => void;
+  redraw(): void { if (this.last) this.draw(this.last); }
   mesh: Mesh;
   private canvas = document.createElement('canvas');
   private tex: CanvasTexture;
@@ -14,6 +18,7 @@ export class Label {
     this.tex.colorSpace = SRGBColorSpace;
     this.tex.anisotropy = 4;
     this.mesh = new Mesh(new PlaneGeometry(w, h), new MeshBasicMaterial({ map: this.tex, transparent: true }));
+    Label.all.add(this);
   }
   resize(w: number, h: number): void {
     if (Math.abs(w - this.w) < 1e-4 && Math.abs(h - this.h) < 1e-4) return;
@@ -26,7 +31,7 @@ export class Label {
     (this.mesh.material as MeshBasicMaterial).map = this.tex;
   }
   draw(fn: (g: CanvasRenderingContext2D, W: number, H: number) => void): void {
-    const g = this.canvas.getContext('2d')!;
+    this.last = fn; const g = this.canvas.getContext('2d')!;
     g.clearRect(0, 0, this.canvas.width, this.canvas.height);
     fn(g, this.canvas.width, this.canvas.height);
     this.tex.needsUpdate = true;
@@ -45,7 +50,7 @@ export function panel(g: CanvasRenderingContext2D, W: number, H: number, fill: s
   // rim light: brighter along the top edge, like glass catching light
   const grad = g.createLinearGradient(0, y, 0, y + h);
   grad.addColorStop(0, 'rgba(255,255,255,0.28)'); grad.addColorStop(0.5, 'rgba(255,255,255,0.08)'); grad.addColorStop(1, 'rgba(255,255,255,0.04)');
-  g.strokeStyle = grad; g.lineWidth = 2; g.beginPath(); g.roundRect(x + 1, y + 1, w - 2, h - 2, r); g.stroke();
+  g.strokeStyle = HC.on ? '#FFFFFF' : grad; g.lineWidth = HC.on ? 4 : 2; g.beginPath(); g.roundRect(x + 1, y + 1, w - 2, h - 2, r); g.stroke();
   if (accent) { g.fillStyle = accent; g.beginPath(); g.roundRect(x, y, 10, h, [r, 0, 0, r]); g.fill(); }
 }
 export function text(g: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, color: string = C.ink, weight = 500, maxW = 9999, align: CanvasTextAlign = 'left'): void {

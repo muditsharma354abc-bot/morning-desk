@@ -13,6 +13,7 @@ Built for the Start Developer Competition (Productivity track, New Experience di
 | [Live app](https://muditsharma354abc-bot.github.io/morning-desk/) | Your own plan, saved on this device. The hands tutorial starts on your first visit. |
 | [Demo state](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1) | A fixed sample day with a 14:00 Client sync and a 90-minute deep-work block that runs into it, so the planner has something to fix. It uses separate storage and never touches your real plan. |
 | [Autoplay demo](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1) | A hands-free walkthrough of about 2–3 minutes that drives the real app through emulated hands, with captions. It needs a desktop browser (it uses the built-in emulator). |
+| [v2 hands-only autoplay](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1&hands=1) | The v2 walkthrough driven by emulated hands only, no controller at any step. |
 | [v2 MR autoplay](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1) | About 2 minutes in the emulator's simulated room: desk and timeline placed on the room's table and wall, the same spot after re-entering XR, Re-place, one focus block, and Wind-down. |
 
 On a Quest 3, open the live app in the Meta Quest Browser and press **Enter XR**. On a desktop browser the built-in emulator runs it, no headset or extension needed.
@@ -59,7 +60,7 @@ It checks, in this order:
 
 After a focus block, later blocks shift by the measured time (for example, "done 8m early, later blocks moved 8m earlier"), and the planner runs these checks again.
 
-The planner is rule-based and runs entirely on the device: there's no AI model, no API key and no network call. It sits behind a small `Planner` interface in `src/planner.ts`.
+The planner is rule-based and runs entirely on the device: there's no API key and it makes no network calls (the only requests are for the app's own bundled files). It sits behind a small `Planner` interface in `src/planner.ts`.
 
 ![The smart planner flagging the 90-minute block that runs into the 14:00 meeting](docs/screenshots/03-meeting-clash.png)
 
@@ -90,6 +91,18 @@ Everything works with bare hands (controllers and mouse work too).
 | **Thumbs-up / thumbs-down** | Keeps or undoes the planner's change, and thumbs-up finishes a focus block. Hold it for about half a second. |
 | **Fingertip poke** | Presses buttons. |
 
+Every gesture has a button alternative, and in hands mode every button can be pressed by fingertip poke or by pinching along the hand ray (tested in the emulator):
+
+| Gesture | Button alternative |
+| --- | --- |
+| Pinch-drag a card to the timeline | **📅 Plan it** |
+| Flick sideways | **⏭ Skip** |
+| Thumbs-up / thumbs-down on a planner change | **👍 Keep** / **👎 Undo** |
+| Thumbs-up in Focus Mode | **✓ Done** (plus **+15 min** and **✕ Exit**) |
+| Thumbs-up / thumbs-down in Wind-down | **→ Tomorrow** / **✕ Drop** |
+
+Other buttons: **📍 Re-place**, **◐ Contrast** and **📊 7 days**. One open point: **→ Tomorrow** by poke has only been confirmed in the scripted run so far.
+
 The **hands tutorial** starts on your first visit and moves on only when you actually do each gesture. Replay it with **? Tutorial**, or add `?tutorial=1` to the URL.
 
 ## Trying it in the emulator
@@ -108,15 +121,17 @@ The autoplay demo selects the emulator's hands mode by itself. To pinch by hand 
 - Everything has been run in the built-in WebXR emulator (IWER) and its simulated room only. Nothing has been tested on a real Quest 3 yet.
 - **Needs a headset to verify:** how real passthrough looks and feels, whether cards read well on a real desk, plane detection and hit-test in real rooms, anchors surviving real sessions, reboots and space changes, real-world reach and comfort (seated or standing), real hand tracking for pinch, poke and thumbs, and the VR fallback on a device without immersive-ar.
 - Manual pinch through the emulator's pinch latch has been verified by script, but not yet by a person dragging by hand.
-- Ray pinch on far timeline blocks is untested.
+- Ray pinch on far timeline blocks is untested on a headset.
+- **Not yet tested on a headset:** frame rate (no fps figure is claimed anywhere), real placement on a real desk and wall, anchors coming back after a reload, and **→ Tomorrow** by poke.
+- The [headset test plan](docs/HEADSET_TEST_PLAN.md) lists the Quest 3 session that will check these.
 
 ## Mixed reality: desk, wall and anchors (v2)
 
-On a headset the app starts an immersive-ar passthrough session, so the planner sits in your real room.
+Placement uses standard WebXR plane detection, hit-test and anchors through IWSDK (not MRUK). In the emulator, `?mr=1` places the timeline on the detected wall of the simulated room, and Re-place works. On a headset the app starts an immersive-ar passthrough session, so the planner sits in your real room.
 
 - **Desk:** it looks for a table-height surface first, then tries a hit-test, and if both fail it asks you to tap to place the desk about 60 cm ahead.
 - **Timeline:** it goes on a detected wall in front of you. If no wall is found, it floats about 1.1 m ahead at eye height.
-- **Same spot when you return:** the desk and wall positions are saved against a persistent WebXR anchor, and they come back in the same spot when you return (tested in the emulator only). If the anchor can't be found, you place them again.
+- **Same spot when you return:** the desk and wall positions are saved against a persistent WebXR anchor, and they come back in the same spot when you return (tested in the emulator only; untested on a headset). If the anchor can't be found, you place them again.
 - **📍 Re-place** on the desk moves everything to where you're sitting now.
 - **VR fallback:** if the browser can't do immersive-ar, you get a virtual room instead.
 
@@ -124,13 +139,34 @@ On a headset the app starts an immersive-ar passthrough session, so the planner 
 
 ![Wind-down: keep or drop each unfinished task for tomorrow](docs/screenshots/06-wind-down.png)
 
+## Accessibility, progress and testing
+
+- **High contrast:** the **◐ Contrast** button (or `?contrast=1`) switches to a high-contrast palette.
+- **Last 7 days:** **📊 7 days** shows your progress over the past week, built only from data saved locally on this device. Demo runs never write to it.
+- **Headset checklist:** `?test=1` adds a 16-item checklist you tick by poke, with a live frame-rate readout (average and minimum over the last 10 seconds). In the desktop emulator the scene is rendered in software, so that number is not a Quest frame rate. See [docs/HEADSET_TEST_PLAN.md](docs/HEADSET_TEST_PLAN.md).
+
+![High-contrast mode](docs/screenshots/07-high-contrast.png)
+
+![Last 7 days, built from locally saved history](docs/screenshots/08-seven-day.png)
+
+![?test=1 checklist in the emulator (the fps shown is software-rendered, not a Quest number)](docs/screenshots/09-test-checklist.png)
+
+## Look and sound
+
+- A dark glass palette, with the [Inter](https://github.com/rsms/inter) typeface bundled locally (SIL Open Font License).
+- Short sounds for pinch, drop, timer start and thumbs-up, synthesized by our own script (`scripts/make-sfx.mjs`) and released as CC0, in `public/sfx`.
+- Picked-up cards scale up slightly, and dropped cards snap into place with a small bounce.
+- Full attributions are in [CREDITS.md](CREDITS.md).
+
 Close-up distances: cards sit within reach (about 60 cm), the Focus and summary panels open about 0.6 m in front of you, and a task's detail card about 0.7 m. Key UI stays within about ±30° of the centre of view.
 
 ### URL flags
 
 - `?mr=1` runs the MR flow in the emulator, seated at the simulated room's desk. Real headsets use it automatically.
 - `?demo=1&autoplay=1&mr=1` is the v2 walkthrough. `?demo=1&autoplay=1&clean=1` is the original walkthrough, unchanged.
-- `?tutorial=1` restarts the tutorial on a fresh sample desk, and `?hands=1` opens the emulator in hands mode.
+- `?tutorial=1` restarts the tutorial on a fresh sample desk, and `?hands=1` opens the emulator in hands mode (`?demo=1&autoplay=1&mr=1&hands=1` is the hands-only walkthrough).
+- `?contrast=1` starts in high contrast, and `?test=1` shows the headset test checklist.
+- `?debug=1` shows placement and anchor status on the timeline header.
 - Test flags: `?vr=1` (as if immersive-ar weren't supported), `?noplanes=1` (forces tap to place) and `?nextday=1` (pretends it's tomorrow, to check the wind-down rollover).
 
 ## Run it locally
@@ -158,7 +194,7 @@ It builds with the `/morning-desk/` base path and publishes `dist/` to the `gh-p
 
 ## Tech stack
 
-- [IWSDK](https://github.com/facebook/immersive-web-sdk) (`@iwsdk/core`) for the ECS world, hand grab, poke and ray interaction, plane detection and anchors, and the IWER emulator
+- [IWSDK](https://github.com/facebook/immersive-web-sdk) (`@iwsdk/core` pinned at exactly `1.1.0-rc.2`) for the ECS world, hand grab, poke and ray interaction, plane detection and anchors, and the IWER emulator
 - [three.js](https://threejs.org/) for rendering
 - [pmndrs uikit](https://github.com/pmndrs/uikit) (`@pmndrs/uikit`, Horizon kit) for spatial UI
 - [WebXR](https://immersive-web.github.io/webxr/) with passthrough (immersive AR) and hand tracking

@@ -60,7 +60,7 @@ It checks, in this order:
 
 After a focus block, later blocks shift by the measured time (for example, "done 8m early, later blocks moved 8m earlier"), and the planner runs these checks again.
 
-The planner is rule-based and runs entirely on the device: there's no API key and it makes no network calls (the only requests are for the app's own bundled files). It sits behind a small `Planner` interface in `src/planner.ts`.
+The planner is a rule-based planner, no API key, no network calls (the app only loads its own bundled files). It sits behind a small `Planner` interface in `src/planner.ts`.
 
 ![The smart planner flagging the 90-minute block that runs into the 14:00 meeting](docs/screenshots/03-meeting-clash.png)
 
@@ -76,11 +76,11 @@ Press **✓ Done** on the desk to close the day. Your streak goes up if you also
 
 It ends with a short rule-based note on why the day went that way and one suggestion for tomorrow.
 
-![Day so far summary from the demo run: 4 of 6 done, 1h 30m focus, 1 meeting, nothing postponed, 1 meeting clash fixed, streak 5 days](docs/screenshots/04-day-summary-final.png)
+![Day so far summary at the end of the demo run: 4 of 6 done, 1 meeting clash fixed, 5-day streak](docs/screenshots/04-day-summary-final.png)
 
 ## Hands-only interactions
 
-Everything works with bare hands (controllers and mouse work too).
+Hands are the default input everywhere, including the emulator (controllers and mouse work too; add `?controllers=1` to use emulated controllers).
 
 | Gesture | What happens |
 | --- | --- |
@@ -109,12 +109,11 @@ The **hands tutorial** starts on your first visit and moves on only when you act
 
 The autoplay demo selects the emulator's hands mode by itself. To pinch by hand on a desktop instead, outside the emulator's play mode:
 
-1. Open [?demo=1](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1) and click **Enter MR**.
-2. In the emulator toolbar, **Select input mode**, then **Hands**; both panels should say hand.
-3. Drag the right hand's arrows onto a card.
-4. Click the **Pinch** latch (pin icon) in the right hand panel to grab it.
-5. Drag the hand to the timeline.
-6. Click the latch again to drop it.
+1. Open [?demo=1](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1) and click **Enter MR**. The emulator starts in hands mode; both hand panels should say hand.
+2. Drag the right hand's arrows onto a card.
+3. Click the **Pinch** latch (pin icon) in the right hand panel to grab it.
+4. Drag the hand to the timeline.
+5. Click the latch again to drop it.
 
 ## What's tested and what isn't
 
@@ -135,19 +134,23 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 - **📍 Re-place** on the desk moves everything to where you're sitting now.
 - **VR fallback:** if the browser can't do immersive-ar, you get a virtual room instead.
 
-![v2 in the emulator's simulated room: desk on the room's table, timeline on its wall](docs/screenshots/05-mr-placement.png)
+![Plain XR in the emulator's room with ?test=1 on: desk at the table, timeline ahead (a plain-XR frame, not the v2 MR wall placement; the fps shown is software-rendered, not a Quest number)](docs/screenshots/05-mr-placement.png)
 
-![Wind-down: keep or drop each unfinished task for tomorrow](docs/screenshots/06-wind-down.png)
+![Wind-down in the v2 MR walkthrough: keep or drop each unfinished task for tomorrow (in this v2 MR frame the 7 days and Contrast chips still sit over the monitor; a fix is in progress)](docs/screenshots/06-wind-down.png)
 
 ## Accessibility, progress and testing
 
 - **High contrast:** the **◐ Contrast** button (or `?contrast=1`) switches to a high-contrast palette.
-- **Last 7 days:** **📊 7 days** shows your progress over the past week, built only from data saved locally on this device. Demo runs never write to it.
+- **Last 7 days:** **📊 7 days** shows your progress over the past week, built only from data saved locally on this device. A fresh start shows **Start your streak today**. A **Sample week (demo data)** toggle fills the view with example days so you can see how it looks; it's off by default, held in memory only, and never mixed with or saved to your real history.
+- **Demo isolation:** demo runs use separate `morning-desk.demo.*` storage, so your real history and anchors stay untouched. Both demo walkthroughs end on **5-day streak**, and Wind down closes at the end.
+- **Readability:** timeline text is 1.5x larger, and the flat (non-XR) view fits common Mac screen sizes.
 - **Headset checklist:** `?test=1` adds a 16-item checklist you tick by poke, with a live frame-rate readout (average and minimum over the last 10 seconds). In the desktop emulator the scene is rendered in software, so that number is not a Quest frame rate. See [docs/HEADSET_TEST_PLAN.md](docs/HEADSET_TEST_PLAN.md).
 
 ![High-contrast mode](docs/screenshots/07-high-contrast.png)
 
-![Last 7 days, built from locally saved history](docs/screenshots/08-seven-day.png)
+![Last 7 days, built from locally saved history, on a fresh start](docs/screenshots/08-seven-day.png)
+
+![Sample week (demo data)](docs/screenshots/08b-sample-week.png)
 
 ![?test=1 checklist in the emulator (the fps shown is software-rendered, not a Quest number)](docs/screenshots/09-test-checklist.png)
 
@@ -164,8 +167,9 @@ Close-up distances: cards sit within reach (about 60 cm), the Focus and summary 
 
 - `?mr=1` runs the MR flow in the emulator, seated at the simulated room's desk. Real headsets use it automatically.
 - `?demo=1&autoplay=1&mr=1` is the v2 walkthrough. `?demo=1&autoplay=1&clean=1` is the original walkthrough, unchanged.
-- `?tutorial=1` restarts the tutorial on a fresh sample desk, and `?hands=1` opens the emulator in hands mode (`?demo=1&autoplay=1&mr=1&hands=1` is the hands-only walkthrough).
+- `?tutorial=1` restarts the tutorial on a fresh sample desk, and `?hands=1` makes the autoplay walkthrough use hands only (`?demo=1&autoplay=1&mr=1&hands=1`). Hands are already the default everywhere else.
 - `?contrast=1` starts in high contrast, and `?test=1` shows the headset test checklist.
+- `?controllers=1` switches the emulator to controllers instead of hands, and `?gizmos=1` shows the emulator's move gizmos (both hidden by default).
 - `?debug=1` shows placement and anchor status on the timeline header.
 - Test flags: `?vr=1` (as if immersive-ar weren't supported), `?noplanes=1` (forces tap to place) and `?nextday=1` (pretends it's tomorrow, to check the wind-down rollover).
 

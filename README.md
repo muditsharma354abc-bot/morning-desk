@@ -16,6 +16,7 @@ Built for the Start Developer Competition (Productivity track, New Experience di
 | [v2 hands-only autoplay](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1&hands=1) | The v2 walkthrough driven by emulated hands only, no controller at any step. |
 | [Morning autoplay](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1&hands=1&clean=1&wake=1&mood=okay) | The v2 hands-only walkthrough that starts with Room wakes up, then picks the Okay mood and keeps the morning plan (`&mood=low` or `&mood=focused` to change it). |
 | [v2 MR autoplay](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1) | About 2 minutes in the emulator's simulated room: desk and timeline placed on the room's table and wall, the same spot after re-entering XR, Re-place, one focus block, and Wind-down. |
+| [v2 MR autoplay with zones](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1&zones=1) | The v2 MR walkthrough plus a Room Zones beat: Focus and Quick zones claimed, cards routed to them, and the look-to-target glow (head gaze). Emulator only. |
 
 On a Quest 3, open the live app in the Meta Quest Browser and press **Enter XR**. On a desktop browser the built-in emulator runs it, no headset or extension needed.
 
@@ -36,7 +37,7 @@ Everything is placed for a seated user, with key UI close to the centre of view.
 - **In front:** the wall timeline, and the Focus panel when you're focusing.
 - **Left:** the meetings board. A meeting that a scheduled block runs into shows a **⚠ clash** warning.
 - **Right:** the pending board with tasks you haven't planned yet ("drag to plan").
-- **On the desk:** must-do task cards within reach, plus the **✨ Plan for me**, **✓ Done**, **? Tutorial** and **↺ Demo reset** buttons.
+- **On the desk:** must-do task cards within reach, plus the **📋 Plan for me**, **✓ Done**, **? Tutorial** and **↺ Demo reset** buttons.
 - **Behind the timeline:** a completed strip showing how many tasks are done.
 
 ## Focus Mode
@@ -85,7 +86,7 @@ During the day it adjusts quietly, with no panel or popup: if a meeting clash ap
 
 ## The smart planner
 
-Tap **✨ Plan for me** and the planner proposes one concrete change at a time. Each change animates into place and waits for your decision: thumbs-up keeps it, thumbs-down undoes it and restores the exact previous plan. **👍 Keep** and **👎 Undo** buttons are there as a fallback.
+Tap **📋 Plan for me** and the planner proposes one concrete change at a time. Each change animates into place and waits for your decision: thumbs-up keeps it, thumbs-down undoes it and restores the exact previous plan. **👍 Keep** and **👎 Undo** buttons are there as a fallback.
 
 It checks, in this order:
 
@@ -169,7 +170,7 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 - **Desk:** it looks for a table-height surface first, then tries a hit-test, and if both fail it asks you to tap to place the desk about 60 cm ahead.
 - **Timeline:** it goes on a detected wall in front of you. If no wall is found, it floats about 1.1 m ahead at eye height.
 - **Same spot when you return:** the desk and wall are saved against a persistent WebXR anchor, so the desk comes back in the same spot (tested in the emulator only; untested on a headset). If the anchor can't be found, you place them again.
-- **Room Zones (step 4):** tap 🎯 Claim zone, look to target a real surface (head gaze), then pinch to claim it. The first claim is a Focus zone and the second a Quick zone. The planning agent sends long Pending cards to Focus and short ones to Quick, and you can drop a card on a zone yourself. Zones are stored relative to the anchored desk, so they come back in the same spot (tested in the emulator only; untested on a headset).
+- **Room Zones (step 4):** tap 🎯 Claim zone, look to target a real surface (head gaze), then pinch to claim it. The first claim is a Focus zone and the second a Quick zone. The planning agent sends long Pending cards to Focus and short ones to Quick, and you can drop a card on a zone yourself. Zones are stored relative to the anchored desk, so they come back in the same spot (tested in the emulator only; untested on a headset). A claimed zone shows as a labelled Focus or Quick patch, and the cards sent to it land on the patch.
 - **Look to target:** the card you face for half a second glows. This is head gaze, not eye tracking.
 - **Depth occlusion:** always requested, with no flag needed. If depth sensing isn't granted, the app logs one line and renders normally. Real occlusion only works on a headset and is unverified on Quest 3S.
 
@@ -181,7 +182,9 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 
 ![The v2 MR layout in the emulator: meetings left, timeline ahead, pending right, buttons along the desk edge](docs/screenshots/05-mr-placement.png)
 
-![Wind down in the v2 MR walkthrough, step 1: done today, focus time and unfinished tasks, then decide what rolls into tomorrow (in this frame the dialog edge still sits slightly over the timeline; a fix is on main)](docs/screenshots/06-wind-down.png)
+![Wind down in the v2 MR walkthrough, step 1: done today, focus time and unfinished tasks, then decide what rolls into tomorrow (emulator; the dialog sits clear of the timeline)](docs/screenshots/06-wind-down.png)
+
+![After leaving and re-entering XR in the emulator, the desk is back in the same spot (tested in the emulator only; untested on a headset)](docs/screenshots/16-anchor-restored.png)
 
 ## Accessibility, progress and testing
 
@@ -211,7 +214,7 @@ Close-up distances: cards sit within reach (about 60 cm), the Focus and summary 
 ### URL flags
 
 - `?mr=1` runs the MR flow in the emulator, seated at the simulated room's desk. Real headsets use it automatically.
-- `?demo=1&autoplay=1&mr=1` is the v2 walkthrough. `?demo=1&autoplay=1&clean=1` is the original walkthrough, unchanged.
+- `?demo=1&autoplay=1&mr=1` is the v2 walkthrough. Add `&zones=1` to it (`?demo=1&autoplay=1&mr=1&zones=1`) for a Room Zones beat: it claims a Focus and a Quick zone, routes cards to them, and shows the look-to-target glow (head gaze, never eye tracking). `?demo=1&autoplay=1&clean=1` is the original walkthrough, unchanged.
 - `?tutorial=1` restarts the tutorial on a fresh sample desk, and `?hands=1` makes the autoplay walkthrough use hands only (`?demo=1&autoplay=1&mr=1&hands=1`). Hands are already the default everywhere else.
 - `?contrast=1` starts in high contrast, and `?test=1` shows the headset test checklist.
 - `?controllers=1` switches the emulator to controllers instead of hands, and `?gizmos=1` shows the emulator's move gizmos (both hidden by default).

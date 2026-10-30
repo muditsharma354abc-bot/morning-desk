@@ -143,7 +143,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     await thumbs(true); await until(() => !sys.focus, 3000); await sleep(1500);
 
     if (sys.pending) { say('4/6  the planner adjusted the day · 👍 keep'); await thumbs(true); await until(() => !sys.pending, 3000); await sleep(1200); }
-    say('5/6  🌙 Wind down: today in numbers');
+    say('5/6  🌙 Wind down: today in real numbers');
     // state-driven so a missed poke just retries (deterministic outcome: must-dos kept, the rest dropped)
     let said = 0; const t0 = performance.now();
     while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 360000) {

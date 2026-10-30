@@ -36,3 +36,39 @@ export function enableLampHide(): void {
   };
   sweep(); setInterval(sweep, 500); // the room loads async and can be re-loaded from the devui
 }
+
+/**
+ * Every view: hide the potted plants of IWER's synthetic 'home_office' room (emulator only; a real
+ * headset shows your own room). In IWER's SEM scene each plant is a 0.28 × 0.38 m textured
+ * PlaneGeometry card; the floor / side-table pots are tapered CylinderGeometry (radiusTop ≠
+ * radiusBottom) plus a thin dark soil disc. Only those meshes are hidden.
+ */
+export function enablePlantHide(): void {
+  const cards: { min: V3; max: V3 }[] = [];
+  const sweep = () => {
+    const sem = (window as unknown as { IWER_DEVICE?: { sem?: { scene?: { traverse(f: (o: Obj) => void): void } } } }).IWER_DEVICE?.sem;
+    sem?.scene?.traverse((o) => {
+      const g = o.geometry as (Obj['geometry'] & { parameters?: Record<string, number> }) | undefined; const c = o.material?.color;
+      if (!o.isMesh || !g || o.userData.mdPlant !== undefined) return;
+      const pr = (g.parameters ?? {}) as Record<string, number>; const ph = pr.height ?? 1;
+      const card = g.type === 'PlaneGeometry' && Math.abs(pr.width - 0.28) < 1e-6 && Math.abs(ph - 0.38) < 1e-6;
+      const pot = g.type === 'CylinderGeometry' && pr.radiusTop !== pr.radiusBottom;
+      const soil = g.type === 'CylinderGeometry' && ph < 0.02 && !!c && c.r + c.g + c.b < 0.1;
+      o.userData.mdPlant = card || pot || soil; if (card || pot || soil) o.visible = false;
+      if (card) { const gg = o.geometry as unknown as { computeBoundingBox(): void; boundingBox: { clone(): { applyMatrix4(m: unknown): { min: V3; max: V3 } } } };
+        gg.computeBoundingBox(); cards.push(gg.boundingBox.clone().applyMatrix4(o.matrixWorld)); }
+    });
+    // terracotta pots under the plant cards are merged into one shared mesh (world-space vertices): collapse only the triangles right under a card
+    if (cards.length) sem?.scene?.traverse((o) => {
+      const g = o.geometry, c = o.material?.color;
+      if (!o.isMesh || !g || !c || g.type !== 'BufferGeometry' || !g.index || o.userData.mdPot) return;
+      if (!(c.r > 0.3 && c.g < 0.2 && c.b < 0.1)) return;
+      const p = g.attributes.position, idx = g.index;
+      const inside = (i: number) => cards.some((b) => p.getX(i) > b.min.x - 0.12 && p.getX(i) < b.max.x + 0.12 && p.getZ(i) > b.min.z - 0.12 && p.getZ(i) < b.max.z + 0.12 && p.getY(i) > b.min.y - 0.3 && p.getY(i) < b.min.y + 0.12);
+      let hit = 0;
+      for (let t = 0; t + 2 < idx.count; t += 3) if (inside(idx.getX(t)) && inside(idx.getX(t + 1)) && inside(idx.getX(t + 2))) { const a = idx.getX(t); idx.setX(t + 1, a); idx.setX(t + 2, a); hit++; }
+      if (hit) idx.needsUpdate = true; o.userData.mdPot = true;
+    });
+  };
+  sweep(); setInterval(sweep, 500);
+}

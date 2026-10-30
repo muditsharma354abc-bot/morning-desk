@@ -43,3 +43,13 @@ export function enableCleanCapture(world: World): void {
   };
   sweep(); setInterval(sweep, 500);
 }
+
+/** Default (not ?controllers / ?gizmos): hide only IWER devui's transform-gizmo overlay canvas (the red/blue squares and axis arrows drawn over the app). Toolbar and hand panels stay. */
+export function hideGizmos(world: World): void {
+  const sweep = () => {
+    for (const c of document.querySelectorAll('canvas')) {
+      if (c !== world.renderer.domElement && (c as HTMLElement).style.top === '50vh' && Number((c as HTMLElement).style.zIndex) > 2) (c as HTMLElement).style.visibility = 'hidden';
+    }
+  };
+  sweep(); setInterval(sweep, 500);
+}

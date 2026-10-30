@@ -80,9 +80,9 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
     R.poseId = 'point';
     const from = cur, before = snap();
     await tween(900, (k) => tip(lerp3(from, off(0.07), k)));
-    for (let attempt = 0; attempt < 2 && snap() === before; attempt++) {
-      await tween(260, (k) => tip(off(0.07 - 0.09 * k)));   // push ~2 cm through the face
-      await until(() => snap() !== before, 500);
+    for (let attempt = 0; attempt < 4 && snap() === before; attempt++) {
+      await tween(500, (k) => tip(off(0.07 - 0.09 * k)));   // push ~2 cm through the face
+      await until(() => snap() !== before, 900);
       await tween(220, (k) => tip(off(-0.02 + 0.09 * k)));  // lift off
     }
     cur = off(0.08); R.poseId = 'default'; pin(R, cur);
@@ -153,7 +153,7 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
 function caption(): HTMLDivElement {
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#2f3a36e6;color:#f4efe4;font:600 15px system-ui,sans-serif;padding:8px 16px;border-radius:16px;pointer-events:none;display:flex;gap:10px;align-items:center';
-  const tag = document.createElement('span'); tag.textContent = '▶ autoplay demo'; tag.style.cssText = 'background:#9cbf9b;color:#2f3a36;border-radius:10px;padding:2px 8px;font-size:12px';
+  const tag = document.createElement('span'); tag.textContent = '▶ autoplay demo'; tag.style.cssText = 'background:#9cbf9b;color:#2f3a36;border-radius:10px;padding:2px 8px;font-size:12px;display:none'; // pill never shown in filming runs (text kept for test scripts)
   el.append(tag, document.createElement('span'));
   document.body.append(el);
   return el;

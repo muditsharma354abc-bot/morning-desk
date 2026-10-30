@@ -22,13 +22,13 @@ function leanEmulatedHead(dx: number): void {
 export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#2f3a36e6;color:#f4efe4;font:600 15px system-ui,sans-serif;padding:8px 16px;border-radius:16px;pointer-events:none;display:flex;gap:10px;align-items:center';
-  const tag = document.createElement('span'); tag.textContent = '▶ autoplay demo · v2'; tag.style.cssText = 'background:#9cbf9b;color:#2f3a36;border-radius:10px;padding:2px 8px;font-size:12px';
+  const tag = document.createElement('span'); tag.textContent = '▶ autoplay demo · v2'; tag.style.cssText = 'background:#9cbf9b;color:#2f3a36;border-radius:10px;padding:2px 8px;font-size:12px;display:none'; // pill never shown in filming runs (text kept for test scripts)
   el.append(tag, document.createElement('span')); document.body.append(el);
   const say = (t: string) => { el.lastChild!.textContent = t; };
   const dev = (window as any).IWER_DEVICE;
   if (!dev) { say('needs the IWER emulator (desktop browser)'); return; }
   sys.noAutoAgent = true;
-  localStorage.removeItem('morning-desk.mr.v2'); // deterministic: always place from scratch
+  localStorage.removeItem('morning-desk.demo.mr.v2'); // deterministic (demo key only; real anchors untouched): always place from scratch
   say('starting…');
   dev.primaryInputMode = 'hand';
   await sys.enterXR();
@@ -102,7 +102,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     say('5/6  🌙 Wind down: today in real numbers');
     // state-driven so a missed poke just retries (deterministic outcome: must-dos kept, the rest dropped)
     let said = 0; const t0 = performance.now();
-    while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 90000) {
+    while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 240000) {
       const w = sys.wind;
       if (sys.pending) { log('keep'); await thumbs(true); await sleep(600); continue; }
       if (!w) { log('open'); await press('Wind down'); await sleep(said ? 400 : 3600); continue; }
@@ -117,6 +117,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       log('close'); await press('Close day'); await sleep(400);
     }
     await sleep(2500);
+    if (document.body.dataset.wind !== 'closed') { say('autoplay stopped: wind-down did not close (retry the take)'); return; }
     say(`v2 demo complete · ${sys.s.streak}-day streak`);
   } catch (e) {
     say(`autoplay stopped: ${(e as Error).message}`);

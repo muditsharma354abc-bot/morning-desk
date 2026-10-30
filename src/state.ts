@@ -105,7 +105,7 @@ export function layout(s: PlanState): { slots: Record<string, Slot>; end: number
   return { slots, end: Math.max(cur, s.dayStart) };
 }
 export function load(): PlanState {
-  if (IS_DEMO) return demoState();
+  if (IS_DEMO) { try { localStorage.removeItem(KEY); } catch { /* ignore */ } return demoState(); } // demo: fixed state every load, own key, never real history
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) return rollover(JSON.parse(raw) as PlanState);
@@ -123,8 +123,9 @@ export function rollover(s: PlanState): PlanState {
   s.carriedIn = carry.length; delete s.carry;
   save(s); return s;
 }
+/** Demo reset: clears demo keys only (morning-desk.demo.*). Real history and real anchors are never touched by demo runs. */
 export function clearStorage(): void {
-  for (const k of Object.keys(localStorage)) if (k.startsWith('morning-desk.')) localStorage.removeItem(k);
+  for (const k of Object.keys(localStorage)) if (k.startsWith('morning-desk.demo.')) localStorage.removeItem(k);
 }
 export function save(s: PlanState): void {
   try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ }

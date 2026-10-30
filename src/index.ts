@@ -6,7 +6,7 @@ import { loadFonts } from './style.js';
 // ?hands=1 (not autoplay): put the IWER emulator in hand mode as soon as the device exists, before any session
 {
   const q = new URLSearchParams(location.search);
-  if (q.has('hands') && !q.has('autoplay')) {
+  if (!q.has('controllers') && !q.has('autoplay')) { // emulator: hands are the default input everywhere (?controllers=1 opts out)
     const w = window as unknown as { IWER_DEVICE?: { primaryInputMode: string } };
     let n = 0;
     const apply = () => { if (w.IWER_DEVICE) w.IWER_DEVICE.primaryInputMode = 'hand'; else if (n++ < 200) setTimeout(apply, 25); };
@@ -18,5 +18,7 @@ void loadFonts().then(() => World.create(document.getElementById('scene-containe
   world.registerSystem(MorningDeskSystem);
   if (new URLSearchParams(location.search).has('clean')) void import('./clean.js').then((m) => m.enableCleanCapture(world)); // capture-only
   { const q = new URLSearchParams(location.search); if (q.has('demo') || q.has('clean')) void import('./hide-lamp.js').then((m) => m.enableLampHide()); } // capture-only
+  void import('./hide-lamp.js').then((m) => m.enablePlantHide());
+  { const q = new URLSearchParams(location.search); if (!q.has('controllers') && !q.has('gizmos') && !q.has('clean')) void import('./clean.js').then((m) => m.hideGizmos(world)); } // IWER's red/blue/green move gizmos float over the panels // emulator room: no potted plants in any view
   if (import.meta.env.DEV) (window as unknown as { __md: unknown }).__md = world; // dev-server test hook only
 })); // Inter loads first, so the first canvases draw in it

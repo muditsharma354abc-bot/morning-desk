@@ -8,8 +8,8 @@ Goal: prove on real hardware that the whole experience works **hands-only (no co
 - A real desk or table and a wall in front of it. Sit down.
 
 ## URLs (Quest Browser)
-- Test run: `https://<pages-url>/morning-desk/?test=1`. This shows a checklist panel to your left plus a live fps readout (avg / min over the last 10 s, and draw calls).
-- Demo data: `https://<pages-url>/morning-desk/?demo=1&test=1`
+- Test run: `https://muditsharma354abc-bot.github.io/morning-desk/?test=1`. This shows a checklist panel to your left plus a live fps readout (avg / min over the last 10 s, and draw calls).
+- Demo data: `https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&test=1`
 - High contrast from the start: add `&contrast=1`
 
 Tap **Enter MR** in the page with a hand pinch-ray (the browser's own hand pointer). No controller is needed anywhere.

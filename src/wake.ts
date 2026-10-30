@@ -181,6 +181,8 @@ export class Wake {
     const hold = () => { if (this.picked !== m || !this.moodOpen) return; if (this.pickHold) { setTimeout(hold, 300); return; } this.applyPick(m); }; setTimeout(hold, 1600);
     tone(m === 'low' ? 1 : m === 'okay' ? 3 : 5, 0.5, 0.06);
   }
+  /** Focus opening: never leave the mood orbs over the Focus panel. */
+  closeMood(): void { if (!this.moodOpen) return; this.picked = null; this.moodOpen = false; this.orbs.visible = false; if (document.body.dataset.mood === 'ask') document.body.dataset.mood = 'closed'; }
   private applyPick(m: Mood): void {
     this.picked = null; this.moodOpen = false; this.orbs.visible = false; document.body.dataset.mood = m;
     this.buddy.setFace(m === 'low' ? 'sleepy' : m === 'focused' ? 'happy' : 'awake');

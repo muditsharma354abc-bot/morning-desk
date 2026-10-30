@@ -27,15 +27,17 @@ export function zoneMarker(kind: ZoneKind | 'cursor'): { ring: Mesh; tag: Label 
     tag.draw((g, W, H) => { panel(g, W, H, C.glass, col, 0.95); text(g, 'Pinch to claim', W / 2, H / 2, 17, C.ink, 600, W, 'center'); });
     return { ring, tag };
   }
-  const patch = new Label(PATCH_W, PATCH_H); (patch.mesh.material as MeshBasicMaterial).depthWrite = false;
+  const patch = new Label(PATCH_W, PATCH_H); (patch.mesh.material as MeshBasicMaterial).depthWrite = false; (patch.mesh.material as MeshBasicMaterial).depthTest = false; // always drawn on the table surface (the emulated table can sit a few mm above desk-local 0)
   patch.draw((g, W, H) => {
-    const r = 36, lw = 6; g.beginPath(); g.roundRect(lw, lw, W - 2 * lw, H - 2 * lw, r);
-    g.fillStyle = kind === 'focus' ? 'rgba(255,181,71,0.16)' : 'rgba(143,209,165,0.18)'; g.fill();
-    g.lineWidth = lw; g.strokeStyle = col; g.globalAlpha = 0.9; g.stroke(); g.globalAlpha = 1;
-    g.font = `700 34px Inter, sans-serif`; g.fillStyle = col; g.textBaseline = 'top'; g.fillText(kind === 'focus' ? 'Focus' : 'Quick', 26, 18);
+    const r = 36, lw = 14; g.beginPath(); g.roundRect(lw, lw, W - 2 * lw, H - 2 * lw, r);
+    g.fillStyle = kind === 'focus' ? 'rgba(255,170,40,0.75)' : 'rgba(143,209,165,0.62)'; g.fill(); // strong fill: reads from the seat
+    g.shadowColor = col; g.shadowBlur = 18; g.lineWidth = lw; g.strokeStyle = col; g.stroke(); g.shadowBlur = 0;
+    g.setLineDash([22, 14]); g.lineWidth = 4; g.strokeStyle = '#FFFFFF'; g.beginPath(); g.roundRect(lw * 2.6, lw * 2.6, W - 5.2 * lw, H - 5.2 * lw, r * 0.6); g.stroke(); g.setLineDash([]);
   });
-  tag.draw(() => { /* name is drawn on the patch */ }); tag.mesh.visible = false;
-  return { ring: patch.mesh, tag };
+  // upright name tag at the back edge of the patch, turned to face the seated user (big, readable at default distance)
+  const big = new Label(0.2, 0.05); big.mesh.renderOrder = 6; // depth-tested: a lifted card in front of it stays in front
+  big.draw((g, W, H) => { panel(g, W, H, C.glassHi, col, 1); text(g, kind === 'focus' ? '🎯 Focus zone' : '⚡ Quick zone', W / 2, H / 2, Math.round(H * 0.4), '#FFFFFF', 800, W - 8, 'center'); });
+  return { ring: patch.mesh, tag: big };
 }
 /** Card slot i on a zone (zone-local, 2 × 2): on a flat patch cards lie on it, leaning back toward the user; on a wall they hang on it. */
 export const ZONE_CARDS = 4;
@@ -44,6 +46,6 @@ export function zoneSlot(z: Zone, i: number, out: Vector3, q: Quaternion): void 
   const flat = z.surface === 'flat';
   out.set((col - 0.5) * 0.17, flat ? 0.02 + row * 0.012 : 0.03 - row * 0.1, flat ? -0.035 + row * 0.1 : 0.01);
   q.setFromAxisAngle(new Vector3(0, 1, 0), z.yaw);
-  if (flat) q.multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -1.15)); // lying on the patch, tilted up to the user
+  if (flat) q.multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.95)); // lying on the patch, tilted up to the user
   out.applyQuaternion(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), z.yaw)).add(new Vector3(...z.p));
 }

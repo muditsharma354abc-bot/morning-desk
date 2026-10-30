@@ -1,13 +1,13 @@
 import {
   Color, createSystem, Matrix4, CylinderGeometry, Entity, Grabbed, Group, HemisphereLight, Mesh, MeshStandardMaterial,
   Hovered, OneHandGrabbable, PokeInteractable, Pressed, Quaternion, RayInteractable, SphereGeometry, Vector2, Vector3,
-  VisibilityState, XRAnchor, XRPlane, SessionMode, PlaneGeometry, BoxGeometry, Box3, Ray,
+  VisibilityState, XRAnchor, XRPlane, SessionMode, PlaneGeometry, BoxGeometry, Box3, Ray, CanvasTexture, SRGBColorSpace,
 } from '@iwsdk/core';
 import { Label, panel, para, text } from './label.js';
 import { LAMP } from './hide-lamp.js';
 import { PlanChange, RulePlanner } from './planner.js';
 import { Wake } from './wake.js';
-import { loadZones, saveZones, Zone, ZoneKind, ZONE_NAME, ZONE_CARDS, zoneMarker, zoneSlot, zoneWants } from './zones.js';
+import { loadZones, saveZones, Zone, ZoneKind, ZONE_NAME, ZONE_CARDS, zoneMarker, zoneSlot, zoneWants, PATCH_H } from './zones.js';
 import { Raycaster } from '@iwsdk/core';
 import { C, FONT, HC, setContrast, sfx, unlockAudio } from './style.js';
 import { MOODS, Mood, today, clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, lastWeek, layout, load, PlanState, save, scheduledMinutes } from './state.js';
@@ -137,7 +137,7 @@ export class MorningDeskSystem extends createSystem({
   private deskRow: Mesh[] = [];
   // P1 spatial layout: meetings board on the left, pending board on the right, progress in the background
   private left = new Group(); private right = new Group(); private leftE!: Entity; private rightE!: Entity;
-  private tmpQ = new Quaternion(); private testG = new Group(); private testHead?: Label; private testTicks: Record<string, boolean> = {}; private fpsB: number[] = []; private fpsCur = 0; private fpsT = 0; private fpsShowT = 0;
+  private tmpQ = new Quaternion(); private zTmp = new Vector3(); private tmpQ2 = new Quaternion(); private testG = new Group(); private testHead?: Label; private testTicks: Record<string, boolean> = {}; private fpsB: number[] = []; private fpsCur = 0; private fpsT = 0; private fpsShowT = 0;
   private chips: Mesh[] = []; private flatFovAspect = 0;
   private sampleWeek = false; private sampleBtn!: Btn;
   private history!: Label; private histT = 0; private wallScale = 1; private tableYaw: number | null = null;
@@ -195,10 +195,23 @@ export class MorningDeskSystem extends createSystem({
   // ---------------------------------------------------------------- step 4: Room Zones
   private addZoneMarker(z: Zone): void {
     const m = zoneMarker(z.kind); const e = this.world.createTransformEntity(m.ring, this.deskE);
-    m.ring.position.set(...z.p); m.ring.position.y += 0.006; m.ring.renderOrder = 2; m.ring.rotation.set(z.surface === 'flat' ? -Math.PI / 2 : 0, 0, 0);
+    m.ring.position.set(...z.p); m.ring.position.y += 0.006; m.ring.renderOrder = 2; m.ring.rotation.set(z.surface === 'flat' ? -Math.PI / 2 + 0.3 : 0, 0, 0); // flat patch tipped ~17° toward the seat so it reads at a glancing angle
+    { const mp = (m.ring.material as MeshBasicMaterial).map; if (mp) { mp.anisotropy = 8; mp.needsUpdate = true; } }
     if (z.surface === 'wall') { m.ring.rotation.set(0, z.yaw, 0); }
-    m.ring.add(m.tag.mesh); m.tag.mesh.position.set(0, z.surface === 'flat' ? -0.11 : -0.12, 0.002); if (z.surface === 'flat') m.tag.mesh.rotation.x = Math.PI / 2 - 0.5;
+    // upright name tag beside the patch (desk-local), facing the user: back edge on a table, above the patch on a wall
+    const back = new Vector3(0, 0, -(PATCH_H / 2 + 0.05)).applyAxisAngle(new Vector3(0, 1, 0), z.yaw);
+    m.ring.parent!.add(m.tag.mesh); m.tag.mesh.visible = true;
+    m.tag.mesh.position.set(z.p[0] + (z.surface === 'flat' ? back.x : 0), z.p[1] + (z.surface === 'flat' ? 0.09 : PATCH_H / 2 + 0.045), z.p[2] + (z.surface === 'flat' ? back.z : 0.01));
+    m.tag.mesh.rotation.set(0, z.yaw, 0); m.tag.mesh.rotateX(-0.25); // tipped back toward the seated eye
     this.occl(e); this.zoneVis.set(z.id, m);
+  }
+  zoneFly: { t0: number; from: Map<string, Vector3> } | null = null; private zonePulse = { id: '', until: 0 };
+  /** Brief highlight on a claimed patch (real seconds). */
+  pulseZone(id: string, ms: number): void { this.zonePulse = { id, until: performance.now() + ms }; }
+  private zonePulseStep(): void {
+    const now = performance.now();
+    for (const [id, v] of this.zoneVis) { const on = id === this.zonePulse.id && now < this.zonePulse.until; const k = on ? 0.5 + 0.5 * Math.sin(now / 1000 * 8) : 0;
+      v.ring.scale.setScalar(1 + 0.08 * k); (v.ring.material as MeshBasicMaterial).color.setScalar(1 + 0.8 * k); v.tag.mesh.scale.setScalar(1 + 0.12 * k); }
   }
   /** 🎯 Claim zone: a cursor follows head gaze onto a real surface; pinch (or poke the button again) claims it. */
   toggleClaim(): void {
@@ -223,9 +236,12 @@ export class MorningDeskSystem extends createSystem({
     const yaw = Math.atan2(head.x - local.x, head.z - local.z); // cards face the seated user
     const z: Zone = { id: `z${Date.now() % 1e7}`, kind, p: [local.x, local.y, local.z], yaw, surface: c.surface };
     const old = this.zones.filter((x) => x.kind === kind); // one zone per kind: a new claim moves it
-    for (const o of old) { const v = this.zoneVis.get(o.id); if (v) { v.ring.removeFromParent(); this.zoneVis.delete(o.id); } }
+    for (const o of old) { const v = this.zoneVis.get(o.id); if (v) { v.ring.removeFromParent(); v.tag.mesh.removeFromParent(); this.zoneVis.delete(o.id); } }
     this.zones = [...this.zones.filter((x) => x.kind !== kind), z]; saveZones(IS_DEMO, this.zones); this.addZoneMarker(z);
     sfx.drop(); this.flyT = FLY_T; document.body.dataset.claim = `${kind}@${c.surface}`;
+    // zone landing on camera: cards glide in over 1.2 s of wall-clock time (frame-rate independent), the patch flashes ~2 s
+    this.zoneFly = { t0: performance.now(), from: new Map([...this.items.values()].map((x) => [x.id, x.label.mesh.position.clone()])) };
+    this.pulseZone(z.id, 2200);
     this.agentMsg = `🎯 ${ZONE_NAME[kind]} claimed: ${kind === 'focus' ? 'long' : 'short'} Pending cards go there.`; this.redrawAgent();
   }
   /** Gaze ray (head forward) onto detected planes; no plane in front → 0.7 m along the gaze (fallback). */
@@ -286,8 +302,9 @@ export class MorningDeskSystem extends createSystem({
     const it = this.gazeId ? this.items.get(this.gazeId) : undefined;
     this.gazeGlow.visible = !!it;
     if (it) { const m = it.label.mesh; const g = this.gazeGlow; m.updateMatrixWorld();
-      g.position.copy(m.position).add(new Vector3(0, 0, -0.003).applyQuaternion(m.quaternion)); g.quaternion.copy(m.quaternion);
-      const sc = m.scale.x; g.scale.set((it.label.w + 0.03) * sc, (it.label.h + 0.03) * sc, 1); (g.material as MeshBasicMaterial).opacity = 0.8 + 0.2 * Math.sin(this.gazeT * 4); } // brighter, wider halo
+      g.position.copy(m.position).add(new Vector3(0, 0, -0.002).applyQuaternion(m.quaternion)); g.quaternion.copy(m.quaternion);
+      const pulse = 0.5 + 0.5 * Math.sin(this.gazeT * 6); const sc = m.scale.x * (1 + 0.04 * pulse);
+      g.scale.set((it.label.w + 0.06) * sc, (it.label.h + 0.06) * sc, 1); (g.material as MeshBasicMaterial).opacity = 0.75 + 0.25 * pulse; } // bright emissive rim, pulsing
     document.body.dataset.gaze = this.gazeId;
   }
   private evening(): boolean {
@@ -383,7 +400,8 @@ export class MorningDeskSystem extends createSystem({
     }
     for (const z of this.zones) this.addZoneMarker(z);
     // look to target: soft accent glow behind the card the head is pointed at for 0.5 s
-    this.gazeGlow = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ color: '#FFD27A', transparent: true, opacity: 0.85, depthWrite: false, blending: AdditiveBlending }));
+    this.gazeGlow = new Mesh(new PlaneGeometry(1, 1), new MeshBasicMaterial({ map: rimTexture(), color: '#FFFFFF', transparent: true, opacity: 1, depthWrite: false, blending: AdditiveBlending }));
+    this.gazeGlow.renderOrder = 5;
     this.gazeGlow.visible = false; this.world.scene.add(this.gazeGlow);
     this.detail = new Label(0.3, 0.16); this.detail.mesh.visible = false;
     const de = this.world.createTransformEntity(this.detail.mesh, this.deskE);
@@ -788,11 +806,11 @@ export class MorningDeskSystem extends createSystem({
     if (m.phase === 'restore') return '📍 finding your saved desk…';
     if (m.phase === 'scan' || m.phase === 'hit') return '📍 looking for your desk…';
     if (m.phase === 'tap') return '📍 pinch to set your desk';
-    return m.desk.startsWith('restored') ? '📍 desk + wall restored in the same spot' : `📍 desk: ${m.desk} · wall: ${m.wall}`;
+    return m.desk.startsWith('restored') ? '📍 desk + wall restored in the same spot in your real room' : `📍 desk: ${m.desk} · wall: ${m.wall}`;
   }
   private showPlaceHint(): void {
     this.placeHint.mesh.visible = true;
-    this.placeHint.draw((g, W, H) => { panel(g, W, H, C.glassHi, C.accent, 1); text(g, '📍 Look where you want your desk, then pinch', W / 2, H / 2, 18, '#fff', 600, W - 30, 'center'); });
+    this.placeHint.draw((g, W, H) => { panel(g, W, H, C.glassHi, C.accent, 1); text(g, '📍 Look where you want your desk in your real room, then pinch', W / 2, H / 2, 18, '#fff', 600, W - 30, 'center'); });
   }
 
   // ---------------------------------------------------------------- v2: Wind-down (evening ritual: recap → roll each unfinished task → close the day)
@@ -1229,13 +1247,14 @@ export class MorningDeskSystem extends createSystem({
     this.showSummary();
   }
   /** Spawn a panel in front of the viewer's current head pose: `dist` ahead (level gaze), `drop` below eye height, facing the head. */
-  private placeInView(m: Mesh, dist: number, drop: number): void {
+  private placeInView(m: Mesh, dist: number, drop: number, side = 0): void {
     const cam = this.headCam(); cam.updateMatrixWorld();
     const head = new Vector3().setFromMatrixPosition(cam.matrixWorld);
     const fwd = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new Quaternion()));
     // clamp pitch so the panel stays inside the FoV even if the head looks steeply up/down
     fwd.y = Math.max(-0.35, Math.min(0.2, fwd.y)); fwd.normalize();
     const world = head.clone().addScaledVector(fwd, dist); world.y += drop;
+    if (side) world.add(new Vector3(-fwd.z, 0, fwd.x).normalize().multiplyScalar(side)); // + = right of the gaze
     const parent = m.parent!; parent.updateMatrixWorld();
     m.position.copy(parent.worldToLocal(world.clone()));
     // face the head: world rotation = lookAt(head); local = parent^-1 * world
@@ -1270,7 +1289,8 @@ export class MorningDeskSystem extends createSystem({
     this.focus = { id, length: 25, t0: performance.now(), base: 0, phase: 'run', shown: '' };
     this.focusPanel.mesh.visible = true; this.focusPanel.mesh.scale.setScalar(0.8);
     this.focusBtns[5].label.mesh.visible = this.placeOf(id) !== 'timeline';
-    this.placeInView(this.focusPanel.mesh, 0.62, -0.15);
+    this.placeInView(this.focusPanel.mesh, 0.6, 0.15); // above a real monitor (wall boards step aside in Focus), clear of its edges; mood orbs closed (wake.closeMood)
+    this.wake?.closeMood();
     this.dim.visible = true; sfx.pick();
   }
   private setFocusLength(n: number): void { if (!this.focus) return; this.focus.length = n; if (this.focus.phase === 'ask') this.moreTime(0); this.focus.shown = ''; sfx.yes(); }
@@ -1477,7 +1497,7 @@ export class MorningDeskSystem extends createSystem({
     this.header.draw((g, W, H) => {
       panel(g, W, H, C.paper, over ? C.warn : C.sage);
       text(g, `Today  ${fmt(this.s.dayStart)}–${fmt(this.s.dayStart + av)}`, 34, H * 0.34, 26, C.ink, 700);
-      if (DEBUG) text(g, this.mrFlow() && this.mr.phase !== 'idle' ? this.mrStatus() : this.wallMode === 'detected' ? (this.restored ? '📍 restored on your wall' : '📍 pinned to your wall') : `📍 no wall found: timeline placed ${WALL_FWD} m ahead`, 34, H * 0.74, 17, C.mute, 500, W * 0.55);
+      if (DEBUG) text(g, this.mrFlow() && this.mr.phase !== 'idle' ? this.mrStatus() : this.wallMode === 'detected' ? (this.restored ? '📍 restored on your real wall' : '📍 pinned to your real wall') : `📍 no wall found: timeline placed ${WALL_FWD} m ahead`, 34, H * 0.74, 17, C.mute, 500, W * 0.55);
       text(g, over ? `⚠ ${dur(tot)} planned / ${dur(av)} free` : `${dur(tot)} / ${dur(av)}`, W - 30, H / 2, 24, over ? C.accent : C.sageDeep, 700, W, 'right');
     });
   }
@@ -1713,15 +1733,18 @@ export class MorningDeskSystem extends createSystem({
       this.drawItem(it, place, tgt.w, tgt.h);
       it.label.mesh.visible = tgt.visible && !(this.modalKey && (this.modalKey === 'focus' || this.placeOf(it.id) !== 'timeline'));
       const hov = this.hoverId === it.id || it.entity.hasComponent(Hovered) || this.gazeId === it.id; // look to target counts as hover
-      if (hov) out.add(this.tmp.set(0, 0, 0.018).applyQuaternion(outQ)); // lift toward the user
+      const gz = this.gazeId === it.id;
+      if (hov) out.add(this.tmp.set(0, gz ? 0.02 : 0, gz ? 0.045 : 0.018).applyQuaternion(outQ)); // lift toward the user (look to target: clearly lifted)
       if (this.flyT > 0) { const u = 1 - this.flyT / FLY_T; out.add(this.tmp.set(0, 0, 0.08 * Math.sin(Math.PI * Math.min(1, u * 1.4))).applyQuaternion(outQ)); } // step 3: cards fly in an arc
-      it.label.mesh.position.lerp(out, this.flyT > 0 ? 1 - Math.exp(-delta * 3.2) : k);
+      const zf = this.zoneFly; const from = zf?.from.get(it.id); const zu = zf ? (performance.now() - zf.t0) / 1200 : 1;
+      if (from && zu < 1 && this.zoneTarget(it.id, this.zTmp, this.tmpQ2)) { const e = zu * zu * (3 - 2 * zu); it.label.mesh.position.copy(from).lerp(out, e).add(this.tmp.set(0, 0.06 * Math.sin(Math.PI * e), 0)); } // slow glide onto the patch
+      else it.label.mesh.position.lerp(out, this.flyT > 0 ? 1 - Math.exp(-delta * 3.2) : k);
       it.label.mesh.quaternion.slerp(outQ, k);
       // micro-animation: a soft bounce when a card snaps into a new place (timeline / desk / tomorrow)
       if (place !== it.place) { if (it.place) it.snap = 0; it.place = place; }
       let bounce = 0;
       if (it.snap !== undefined) { it.snap += delta; const t = it.snap; bounce = t < 0.6 ? 0.09 * Math.exp(-t * 7) * Math.sin(t * 22) : 0; if (t >= 0.6) it.snap = undefined; }
-      const sc = it.label.mesh.scale.x + ((hov ? 1.07 : 1) - it.label.mesh.scale.x) * k;
+      const sc = it.label.mesh.scale.x + ((this.gazeId === it.id ? 1.14 : hov ? 1.07 : 1) - it.label.mesh.scale.x) * k;
       it.label.mesh.scale.setScalar(it.snap !== undefined ? 1 + bounce : sc);
       if (this.wake?.busy()) it.label.mesh.scale.multiplyScalar(Math.max(0.001, this.wake.cardK(it.id))); // step 1: cards appear one by one
       if (hov && place === 'timeline') hovTimeline = it.id;
@@ -1754,7 +1777,7 @@ export class MorningDeskSystem extends createSystem({
         if (this.agentOn() && this.morningRun && !this.pending && !this.wind && !this.focus && !this.wake.busy() && !this.wake.moodShown() && this.s.windAutoDay !== today() && this.evening()) {
           this.s.windAutoDay = today(); save(this.s); this.openWindDown(); document.body.dataset.windAuto = '1'; } } }
     if (this.zoneBtn) this.zoneBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.wake?.moodShown() && !this.focus && !this.wind;
-    this.claimStep(delta); this.gazeStep(delta);
+    this.claimStep(delta); this.gazeStep(delta); this.zonePulseStep(); if (this.zoneFly && performance.now() - this.zoneFly.t0 > 1300) this.zoneFly = null;
     if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.mr.vr && !this.wake?.moodShown();
     // agent acts on its own after a short beat
     if (this.agentTimer > 0 && !this.wake?.busy() && !this.wake?.moodShown()) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }
@@ -1764,4 +1787,12 @@ export class MorningDeskSystem extends createSystem({
     const live = (o: { matrixAutoUpdate: boolean; children: unknown[] }) => { o.matrixAutoUpdate = true; for (const c of o.children) live(c as typeof o); };
     live(this.desk); live(this.wall); live(this.left); live(this.right); for (const it of this.items.values()) it.label.mesh.matrixAutoUpdate = true;
   }
+}
+
+/** Look-to-target rim: a bright, soft-edged emissive frame (additive) drawn just behind the card. */
+function rimTexture(): CanvasTexture {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512; const g = c.getContext('2d')!;
+  g.shadowColor = '#FFC94D'; g.shadowBlur = 40; g.strokeStyle = '#FFE7A8'; g.lineWidth = 26;
+  g.beginPath(); g.roundRect(48, 48, 416, 416, 40); g.stroke(); g.shadowBlur = 0; g.lineWidth = 10; g.strokeStyle = '#FFFFFF'; g.stroke();
+  const t = new CanvasTexture(c); t.colorSpace = SRGBColorSpace; return t;
 }

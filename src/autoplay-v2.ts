@@ -102,7 +102,20 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const card = (id: string) => posOf(sys.items.get(id).label.mesh);
   // Reel (&zones=1): Room Zones beat after Keep: Focus + Quick zones on the table either side, agent cards fly in, then look to target
   if (new URLSearchParams(location.search).get('zones') === '1') {
-    say('🎯 Claim a Focus zone'); await sleep(900); sys.claimAt([-0.4, 0.01, -0.1]); await sleep(2200);
+    const ui0 = Object.getOwnPropertySymbols(dev).map((k) => dev[k]?.devui?.inputLayer).find((x: any) => x?.playerRig);
+    const turn = async (ms: number, ty: number, tx: number) => { if (!ui0) return; const fy = ui0.playerRig.rotation.y, fx = ui0.cameraRig.rotation.x; await tween(ms, (k) => { ui0.playerRig.rotation.y = fy + (ty - fy) * k; ui0.cameraRig.rotation.x = fx + (tx - fx) * k; ui0.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui0.cameraRig.getWorldQuaternion(new Quaternion())); }); };
+    const shotHold = async () => { if (document.body.dataset.shotWait !== '1') return; document.body.dataset.shotHold = '1'; while (document.body.dataset.shotHold === '1') await sleep(100); }; // dev screenshot script only: pauses the beat while a frame is captured
+    const dpos = () => new Vector3(dev.position.x, dev.position.y, dev.position.z); // IWER's own Vector3 has no lerp: convert
+    const lean = async (ms: number, to: Vector3 | null) => { const p0 = dpos(); const p1 = to ?? lean0; await tween(ms, (k) => { const v = p0.clone().lerp(p1, k); dev.position.set(v.x, v.y, v.z); }); };
+    const lean0 = dpos();
+    const home = { y: ui0?.playerRig.rotation.y ?? 0, x: ui0?.cameraRig.rotation.x ?? 0 };
+    { // head turns to where the Focus patch goes, the card glides in (1.2 s), patch flashes, hold ~2 s (all wall-clock)
+      const w = sys.desk.localToWorld(new Vector3(-0.3, 0.01, 0.0)); const d = w.sub(head());
+      say('🎯 Claim a Focus zone'); await turn(900, Math.atan2(-d.x, -d.z), Math.atan2(d.y, Math.hypot(d.x, d.z)));
+      await lean(700, lean0.clone().lerp(sys.desk.localToWorld(new Vector3(-0.3, 0.2, 0.0)), 0.5)); // lean in so patch + card read on camera
+      sys.claimAt([-0.3, 0.01, 0.0]); document.body.dataset.zoneLand = 'fly'; await sleep(1300);
+      say('🎯 Focus zone: the long card lands on the patch'); document.body.dataset.zoneLand = 'hold'; await sleep(600); await shotHold(); await sleep(1400); delete document.body.dataset.zoneLand;
+      await lean(700, null); await turn(800, home.y, home.x); }
     say('🎯 Claim a Quick zone'); sys.claimAt([0.42, 0.01, -0.1]); await sleep(2600);
     const id = sys.s.stack.find((x: string) => sys.items.get(x)?.label.mesh.visible && (sys.zoneTarget(x, new Vector3(), new (sys.desk.quaternion.constructor)()) && sys.lastZone === 'focus')) ?? sys.s.stack.find((x: string) => sys.items.get(x)?.label.mesh.visible);
     if (id) {
@@ -113,8 +126,8 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       const y1 = Math.atan2(-d.x, -d.z), x1 = Math.atan2(d.y, Math.hypot(d.x, d.z));
       const aim = (k: number, fy: number, ty: number, fx: number, tx: number) => { if (!ui) return; ui.playerRig.rotation.y = fy + (ty - fy) * k; ui.cameraRig.rotation.x = fx + (tx - fx) * k; ui.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui.cameraRig.getWorldQuaternion(new Quaternion())); };
       say('👀 Look to target: the card you face glows');
-      await tween(900, (k) => aim(k, y0, y1, x0, x1)); await until(() => document.body.dataset.gaze === id, 4000); log(`gaze${document.body.dataset.gaze === id ? '+' : '-'}`); document.body.dataset.zonesBeat = document.body.dataset.gaze === id ? 'gaze' : 'nogaze'; await sleep(2000);
-      await tween(900, (k) => aim(k, y1, y0, x1, x0));
+      const hp = dpos(); await Promise.all([tween(900, (k) => aim(k, y0, y1, x0, x1)), (async () => { const t = m.getWorldPosition(new Vector3()); t.y += 0.12; await lean(900, hp.clone().lerp(t, 0.4)); })()]); await until(() => document.body.dataset.gaze === id, 4000); log(`gaze${document.body.dataset.gaze === id ? '+' : '-'}`); document.body.dataset.zonesBeat = document.body.dataset.gaze === id ? 'gaze' : 'nogaze'; await sleep(600); await shotHold(); await sleep(1600); // glow held ~2 s on the faced card (wall-clock)
+      await Promise.all([tween(900, (k) => aim(k, y1, y0, x1, x0)), lean(900, hp)]);
     }
   }
   try {
@@ -139,7 +152,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     const id = sys.s.timeline.find((x: string) => !sys.s.tasks[x].done);
     const c = card(id); await move([c[0], c[1] + 0.05, c[2] + 0.12], 1300); await move(card(id), 500); await sleep(250);
     await pinch(1); await sleep(120); await pinch(0);
-    await until(() => !!sys.focus, 3000); await until(() => sys.focusPanel.mesh.scale.x > 0.97, 4000); await move(H(0.3, -0.45, -0.1), 600); say('4/6  Focus: timer running, room dimmed'); await sleep(3500); // hold ~3 s on the Focus panel + timer (readable on a slow box)
+    await until(() => !!sys.focus, 3000); await until(() => sys.focusPanel.mesh.scale.x > 0.97, 4000); await move(H(0.3, -0.45, -0.1), 600); say('4/6  Focus: timer running, room dimmed'); await sleep(900); if (document.body.dataset.shotWait === '1') { document.body.dataset.shotHold = '1'; while (document.body.dataset.shotHold === '1') await sleep(100); } await sleep(2600); // hold ~3 s on the Focus panel + timer (readable on a slow box)
     await thumbs(true); await until(() => !sys.focus, 3000); await sleep(1500);
 
     if (sys.pending) { say('4/6  the planner adjusted the day · 👍 keep'); await thumbs(true); await until(() => !sys.pending, 3000); await sleep(1200); }

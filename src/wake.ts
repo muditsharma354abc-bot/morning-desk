@@ -1,6 +1,6 @@
 /**
  * Step 1 "Room wakes up" + step 2 "Mood check" (MR flow only).
- * Wake (~14 s, once per XR session, after the desk + wall are placed): the room dims, a warm sunrise glow rises on the
+ * Wake (~9 s, once per XR session, after the desk + wall are placed): the room dims, a warm sunrise glow rises on the
  * real wall, a light beam draws the timeline in, task cards appear one by one with a soft chime, and the desk buddy
  * opens its eyes. Then three mood orbs (low / okay / focused) ask for one pinch; the choice stays on-device.
  */
@@ -68,7 +68,7 @@ export class Wake {
   /** dev/test only: keep the picked-orb highlight on screen (screenshots). */
   pickHold = false;
   constructor(private h: WakeHost) {
-    this.dim = new Mesh(new SphereGeometry(2.4, 24, 16), new MeshBasicMaterial({ color: '#0b0f0d', transparent: true, opacity: 0, side: BackSide, depthWrite: false, depthTest: false }));
+    this.dim = new Mesh(new SphereGeometry(1.5, 24, 16), new MeshBasicMaterial({ color: '#0b0f0d', transparent: true, opacity: 0, side: BackSide, depthWrite: false, depthTest: false }));
     this.dim.renderOrder = -2; this.dim.visible = false; h.scene.add(this.dim);
     this.glow = new Mesh(new PlaneGeometry(2.0, 1.0), new MeshBasicMaterial({ map: glowTexture(), transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false }));
     this.glow.position.set(0, -0.2, -0.02); this.glow.visible = false; h.wall.add(this.glow);
@@ -78,7 +78,7 @@ export class Wake {
     const cg = new PlaneGeometry(h.trackW, 0.012); cg.translate(h.trackW / 2, 0, 0);
     const core = new Mesh(cg, new MeshBasicMaterial({ color: '#FFB547', transparent: true, depthWrite: false })); core.position.z = 0.001; this.beam.add(core);
     this.beamHead = new Mesh(new SphereGeometry(0.014, 12, 8), new MeshBasicMaterial({ color: '#FFF1C9', transparent: true, depthWrite: false })); this.beam.add(this.beamHead);
-    this.beam.position.set(-h.trackW / 2, 0.075, 0.012); this.beam.visible = false; h.wall.add(this.beam);
+    this.beam.position.set(-h.trackW / 2, 0.1, 0.012); this.beam.visible = false; h.wall.add(this.beam);
     this.buddy.root.position.set(-0.45, 0.05, -0.18); this.buddy.root.rotation.y = 0.3; h.desk.add(this.buddy.root); // left of the cards, inside the downward line of sight
     h.group(this.orbs); this.orbs.visible = false; this.buildOrbs();
   }
@@ -141,8 +141,8 @@ export class Wake {
   private orbItems: { m: Mood; orb: Mesh; label: Label; col: string }[] = [];
   private buildOrbs(): void {
     const defs: [Mood, string, string, string][] = [['low', 'Low', '20 min + breaks', '#8AB4F8'], ['okay', 'Okay', '45 min blocks', '#8FD1A5'], ['focused', 'Focused', 'up to 90 min', '#FFB547']];
-    const head = new Label(0.14, 0.08); head.draw((g, W, H) => { panel(g, W, H, C.glass, C.accent); text(g, 'How do you', W / 2 + 4, H * 0.36, 23, C.ink, 600, W, 'center'); text(g, 'feel today?', W / 2 + 4, H * 0.68, 23, C.ink, 600, W, 'center'); });
-    head.mesh.position.set(-0.27, 0, 0); this.orbs.add(head.mesh); (head.mesh.material as MeshBasicMaterial).depthTest = false; head.mesh.renderOrder = 20; // left of the orbs: nothing reaches up over a real monitor
+    const head = new Label(0.3, 0.05); head.draw((g, W, H) => { panel(g, W, H, C.glass, C.accent); text(g, 'How do you feel today?', W / 2 + 4, H / 2, 26, C.ink, 600, W, 'center'); });
+    head.mesh.position.set(0, 0.115, 0); this.orbs.add(head.mesh); (head.mesh.material as MeshBasicMaterial).depthTest = false; head.mesh.renderOrder = 20; // left of the orbs: nothing reaches up over a real monitor
     defs.forEach(([m, name, sub, col], i) => {
       const label = new Label(0.115, 0.115);
       label.draw((g, W, H) => { panel(g, W, H, C.glass, col); text(g, name, W / 2, H * 0.74, 22, C.ink, 700, W, 'center'); text(g, sub, W / 2, H * 0.89, 13, C.mute, 500, W, 'center'); });
@@ -155,9 +155,9 @@ export class Wake {
   }
   private showMood(): void {
     const { pos, fwd } = this.h.head(); const f = fwd.clone(); f.y = 0; f.normalize();
-    this.orbs.position.copy(pos).addScaledVector(f, 0.4); this.orbs.position.y = pos.y - 0.25; // within poke reach, below the timeline and a real monitor // inside the seated FoV, within reach
+    this.orbs.position.copy(pos).addScaledVector(f, 0.45); this.orbs.position.y = pos.y - 0.07; // eye height (the wall boards step aside meanwhile) // within poke reach, below the timeline and a real monitor // inside the seated FoV, within reach
     this.orbs.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), Math.atan2(-f.x, -f.z));
-    this.orbs.rotateX(-0.5); this.orbs.visible = true; this.moodOpen = true; this.picked = null; this.moodT = 0; document.body.dataset.mood = 'ask';
+    this.orbs.rotateX(-0.12); this.orbs.visible = true; this.moodOpen = true; this.picked = null; this.moodT = 0; document.body.dataset.mood = 'ask';
     for (const o of this.orbItems) o.label.mesh.scale.setScalar(0.01);
   }
   private updateOrbs(dt: number): void {

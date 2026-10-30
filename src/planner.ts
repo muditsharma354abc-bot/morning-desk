@@ -25,7 +25,7 @@ export class RulePlanner implements Planner {
       const task = s.tasks[id]; const gap = m.start - sl.start;
       const after = clone(s); after.conflictsFixed = (s.conflictsFixed ?? 0) + 1;
       const head = `"${task.title}" (${dur(task.minutes)}) runs into your ${fmt(m.start)} ${m.title}: only ${dur(gap)} free.`;
-      if (gap >= 15) {
+      if (gap >= 15 && !s.mood) { // mood set: keep blocks whole (the mood split makes them even), move after the meeting instead
         const a = `${id}~a`, b = `${id}~b`;
         after.tasks[a] = { ...task, id: a, minutes: gap, title: `${task.title} (part 1)`, partOf: id, after: undefined };
         after.tasks[b] = { ...task, id: b, minutes: task.minutes - gap, title: `${task.title} (part 2)`, partOf: id, after: m.id };

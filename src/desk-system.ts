@@ -50,7 +50,7 @@ const ANCHOR_UUID_KEY = 'iwsdk_scene_anchor_uuid'; // IWSDK SceneUnderstandingSy
 // ---- layout constants (metres). Seated, ~0.6 m reach, key UI within ~30° of gaze centre.
 const DESK_FWD = 0.4, DESK_DOWN = 0.26;      // card spread in easy reach
 const WALL_FWD = 1.1;                         // fallback timeline distance, eye height
-const TRACK_W = 0.96, TRACK_H = 0.13;         // ~0.96 m at 1.1 m ≈ ±24°
+const TRACK_W = 0.96, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
 const CARD_W = 0.16, CARD_H = 0.09;
 /** Small icon for icon-only (short) timeline blocks. */
 function iconFor(title: string): string {
@@ -854,6 +854,9 @@ export class MorningDeskSystem extends createSystem({
     }
     if (place === 'tomorrow') {
       const i = s.tomorrow.indexOf(it.id);
+      if (this.mrFlow()) { // MR: tomorrow chips sit under the Meetings board (the wall row landed on a real monitor)
+        out.set(-0.09 + (i % 2) * 0.18, -0.2 - Math.floor(i / 2) * 0.052, 0.01); this.left.localToWorld(out); this.left.getWorldQuaternion(outQ);
+        return { w: 0.17, h: 0.045, visible: i < 6 }; }
       out.set(-TRACK_W / 2 + 0.1 + i * 0.17, -0.37, 0.006); this.wall.localToWorld(out); this.wall.getWorldQuaternion(outQ);
       return { w: 0.16 * this.wallScale, h: 0.045 * this.wallScale, visible: true };
     }
@@ -890,9 +893,13 @@ export class MorningDeskSystem extends createSystem({
         panel(g, W, H, t.done ? '#1C2A22' : C.glass, over ? C.warn : C.prio[t.priority], t.done ? 0.7 : 0.95);
         if (W < 120) {
           // narrow block: no clipped words, just a glyph + duration (full title shows on hover)
-          text(g, t.done ? '✓' : iconFor(t.title), W / 2, H * 0.38, Math.min(45, W * 0.6), C.ink, 400, W, 'center');
-          const ds = dur(t.minutes); let fs = 27; g.font = `600 ${fs}px ${FONT}`; while (fs > 10 && g.measureText(ds).width > W - 8) { fs--; g.font = `600 ${fs}px ${FONT}`; }
-          text(g, ds, W / 2, H * 0.72, fs, C.ink, 600, W, 'center'); // fit, never ellipsised
+          // narrow block: the title word-wrapped (up to 3 lines, words shrink to fit, never just an icon) + duration
+          const words = `${t.done ? '✓ ' : ''}${t.title}`.split(' '); const fit = (w: string, mx: number) => { let f = mx; g.font = `700 ${f}px ${FONT}`; while (f > 14 && g.measureText(w).width > W - 8) { f--; g.font = `700 ${f}px ${FONT}`; } return f; };
+          const lines: string[] = []; for (const w of words) { const last = lines[lines.length - 1]; g.font = `700 22px ${FONT}`; if (last && g.measureText(`${last} ${w}`).width <= W - 8) lines[lines.length - 1] = `${last} ${w}`; else lines.push(w); }
+          const shown = lines.slice(0, 3); if (lines.length > 3) shown[2] = `${shown[2]}…`;
+          shown.forEach((ln, i) => text(g, ln, W / 2, H * (0.17 + i * 0.21), fit(ln, 22), C.ink, 700, W - 4, 'center'));
+          const ds = dur(t.minutes); let fs = 22; g.font = `600 ${fs}px ${FONT}`; while (fs > 10 && g.measureText(ds).width > W - 8) { fs--; g.font = `600 ${fs}px ${FONT}`; }
+          text(g, ds, W / 2, H * 0.85, fs, C.mute, 600, W, 'center'); // fit, never ellipsised
         } else {
           const lines = this.wrap(g, `${t.done ? '✓ ' : ''}${t.title}`, W - 18, 32, 2);
           lines.forEach((ln, i) => text(g, ln, 10, H * (lines.length > 1 ? 0.22 + i * 0.27 : 0.32), 32, C.ink, 700, W - 16));
@@ -1485,7 +1492,7 @@ export class MorningDeskSystem extends createSystem({
     const t = this.s.tasks[id]; const m = this.items.get(id)!.label.mesh;
     this.tip.draw((g, W, H) => { panel(g, W, H, C.glassHi, C.accent, 0.95); text(g, `${t.title} · ${fmt(this.s.dayStart + this.slotStart(id))} · ${dur(t.minutes)}`, W / 2, H / 2, 17, '#fff', 600, W - 20, 'center'); });
     const local = this.wall.worldToLocal(m.position.clone());
-    this.tip.mesh.position.set(Math.max(-0.4, Math.min(0.45, local.x)), 0.095, 0.03);
+    this.tip.mesh.position.set(Math.max(-0.4, Math.min(0.45, local.x)), 0.125, 0.03);
   }
   /** Thumbs up / down hand gesture (held ~0.4 s) answers the pending planner change. Buttons stay as fallback. */
   private detectThumbs(delta: number): void {
@@ -1526,11 +1533,12 @@ export class MorningDeskSystem extends createSystem({
     // idle planner header (nothing pending, no message) is hidden in MR
     { const mrOn = this.mrFlow(); const modal = mrOn && (!!this.focus || !!this.wind || !!this.wake?.moodShown()); // mood check: like Wind down, side board + desk cards step aside
       const focusOn = mrOn && !!this.focus; // Focus hides all boards; Wind down keeps the timeline + meetings visible (panel sits below the timeline)
-      for (const e of [this.leftE, this.wallE]) if (e?.object3D) e.object3D.visible = !focusOn;
+      for (const e of [this.leftE, this.wallE]) if (e?.object3D) e.object3D.visible = !focusOn && !this.wake?.moodShown(); // mood check at eye height: boards step aside
       if (this.rightE?.object3D) this.rightE.object3D.visible = !modal;
+      this.streakLabel.mesh.visible = !this.wake?.moodShown(); // never peeks out behind the mood orbs
       this.agentPanel.mesh.visible = !modal && (!mrOn || !!this.pending || !!this.agentDrawn);
       // cards: Focus hides every card, Wind down hides the Pending ones (timeline stays); edge-triggered so other visibility rules keep working
-      const key = focusOn ? 'focus' : modal ? 'wind' : '';
+      const key = focusOn || this.wake?.moodShown() ? 'focus' : modal ? 'wind' : ''; // mood check: every card steps aside too
       if (key !== this.modalKey) { for (const m of this.modalHidden) m.visible = true; this.modalHidden = [];
         this.modalKey = key; } }
     // flat page: widen the camera's field of view on narrow/tall windows so the whole layout fits (≈84° across)
@@ -1588,6 +1596,9 @@ export class MorningDeskSystem extends createSystem({
       const p0 = Math.floor(this.streakAnim.t * 12); this.streakAnim.t += delta;
       if (Math.floor(this.streakAnim.t * 12) !== p0) this.sumDraw(Math.min(1, Math.max(0, (this.streakAnim.t - 0.6) / 2.4)));
     }
+    { // the planner line comes ~25 cm forward and 1.2x larger while it waits for Keep / Undo (≈1.5x apparent size)
+      const on = !!this.pending && this.inXR(); const kk = 1 - Math.exp(-delta * 6);
+      for (const m of [this.agentPanel.mesh, this.yesBtn.label.mesh, this.noBtn.label.mesh]) { m.position.z += ((on ? 0.25 : 0.01) - m.position.z) * kk; const sc = m.scale.x + ((on ? 1.2 : 1) - m.scale.x) * kk; m.scale.setScalar(sc); } }
     this.persistWall();
     this.mrStep(delta);
     // steps 1-2: wake once the desk + wall are placed this session

@@ -141,7 +141,8 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
     if (sys.pending) { await thumbs(true); await sleep(800); }
 
     say('7/7  poke "Done": day summary + streak');
-    await press('Done'); await sleep(1500);
+    const st0 = sys.s.streak;
+    for (let i = 0; i < 3 && sys.s.streak === st0; i++) { await press('Done'); await sleep(1500); } // retry a missed poke (CPU load)
     await move([0.36, 0.95, -0.25], 1000);
     await sleep(4500); // streak bar animates up
     say(`demo complete · ${sys.s.streak}-day streak`);

@@ -639,7 +639,7 @@ export class MorningDeskSystem extends createSystem({
   openWindDown(): void {
     if (this.focus) this.endFocus(false); this.summary.mesh.visible = false; this.pending = null;
     this.wind = { step: 0, list: this.unfinished(), kept: [], dropped: [] };
-    this.windPanel.mesh.visible = true; this.placeInView(this.windPanel.mesh, 0.55, -0.14); sfx.pick();
+    this.windPanel.mesh.visible = true; this.placeInView(this.windPanel.mesh, 0.55, this.mrFlow() ? -0.22 : -0.14); // MR: fully below the wall timeline sfx.pick();
     document.body.dataset.wind = '0'; this.drawWind();
   }
   /** A = Next / → Tomorrow / ✓ Close day · B = Close / ✕ Drop / ← Back. 👍 / 👎 do the same. */

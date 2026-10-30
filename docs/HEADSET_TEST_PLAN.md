@@ -48,9 +48,9 @@ The checklist ticks (a screenshot of the `?test=1` panel), the fps numbers, plac
 
 > **⚠️ Use this for debugging only. Do NOT use it for the judged hands-only run.** Native XR control can inject synthetic controller/pose input into the real headset session. Anything you do through it does not show the experience working hands-only. Before the fps or hands-only checks, stop the dev server, unplug USB, and reload the Pages URL.
 
-1. On the Mac: `npm run dev -- --native-xr-control` (equivalently `npx iwsdk dev up --native-xr-control`). Note the local port it prints (8081).
-2. Connect the Quest 3 over USB with developer mode on and USB debugging allowed, then run `adb devices` (the headset should be listed) and `adb reverse tcp:8081 tcp:8081`.
-3. In the headset browser, open `https://localhost:8081/morning-desk/?test=1` and enter MR.
-4. Pair: `npx iwsdk runtime pair-headset`. Accept the prompt in the headset if one appears.
-5. List what can be driven: `npx iwsdk runtime targets`. Pick the Quest browser tab.
+1. On the Mac: `npx iwsdk dev up --native-xr-control` (checked against the pinned @iwsdk/cli 1.1.0-rc.2 `iwsdk dev up --help`: "Control native Quest WebXR through ADB-reversed localhost"). Stop it later with `npx iwsdk dev down`. The dev server port is 8081.
+2. Connect the Quest 3 over USB with developer mode on and USB debugging allowed, then run `adb devices` and note the headset's serial. Run `adb reverse tcp:8081 tcp:8081` (the CLI does not do this for you).
+3. Pair this dev session with that exact headset: `npx iwsdk runtime pair-headset --input-json '{"headsetId":"<adb serial>"}'`. It returns a bootstrap URL: open that URL in the Quest browser and enter MR.
+4. Find the headset page: `npx iwsdk runtime targets` (physical targets must be selected explicitly). `npx iwsdk runtime status` shows the session state.
+5. If the managed browser fails: `npx iwsdk runtime recover`.
 6. Caveats: the commands above may differ between IWSDK versions (check `npx iwsdk --help` on the pinned version). Over USB, timing and fps are not representative. `adb reverse` resets on replug. Synthetic input may switch the session to controllers, so after debugging exit XR, reload, and confirm the hand icons are back.

@@ -13,6 +13,11 @@ export interface Task {
 /** Fixed calendar event (not movable by the planner). */
 /** One closed day, as measured: tasks marked done and focus minutes timed by the app. */
 export interface DayLog { d: string; done: number; focus: number; }
+export type Mood = 'low' | 'okay' | 'focused';
+/** Mood → longest focus block and break after each block (minutes). low = short blocks + more breaks; focused = deep work. */
+export const MOODS: Record<Mood, { block: number; brk: number }> = { low: { block: 20, brk: 10 }, okay: { block: 45, brk: 5 }, focused: { block: 90, brk: 0 } };
+export const maxBlock = (s: PlanState) => (s.mood ? MOODS[s.mood].block : 90);
+export const breakMin = (s: PlanState) => (s.mood ? MOODS[s.mood].brk : 0);
 export interface Meeting { id: string; title: string; start: number; minutes: number; }
 export interface PlanState {
   tasks: Record<string, Task>;
@@ -31,6 +36,8 @@ export interface PlanState {
   carry?: string[];        // v2 wind-down: tasks rolled into tomorrow (tomorrow's plan starts with them)
   carriedIn?: number;      // how many came in this morning (for the morning message)
   history?: DayLog[];      // closed days, newest last (real measured data only; max 30)
+  mood?: Mood;             // step 2 mood check (on-device only); unset = v2.1 behaviour (90 min blocks, no breaks)
+  moodDay?: string;        // YYYY-MM-DD the mood was picked (asked once per day)
 }
 export const IS_DEMO = new URLSearchParams(location.search).has('demo');
 // demo runs keep their own key so they never overwrite (or mark the tutorial seen for) a real visit
@@ -93,8 +100,9 @@ export interface Slot { start: number; end: number; clash?: Meeting; }
 /** Pack the timeline from dayStart around fixed meetings. A block that runs into a meeting is a clash. */
 export function layout(s: PlanState): { slots: Record<string, Slot>; end: number } {
   const ms = [...(s.meetings ?? [])].sort((a, b) => a.start - b.start);
-  const slots: Record<string, Slot> = {}; let cur = s.dayStart;
+  const slots: Record<string, Slot> = {}; let cur = s.dayStart; const brk = breakMin(s); let first = true;
   for (const id of s.timeline) {
+    if (!first) cur += brk; first = false; // mood breaks between blocks
     const t = s.tasks[id]; const m = t.done ? (t.actual ?? t.minutes) : t.minutes;
     if (t.after) { const mm = ms.find((x) => x.id === t.after); if (mm) cur = Math.max(cur, mm.start + mm.minutes); }
     for (const x of ms) if (cur >= x.start && cur < x.start + x.minutes) cur = x.start + x.minutes;

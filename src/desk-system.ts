@@ -6,8 +6,9 @@ import {
 import { Label, panel, para, text } from './label.js';
 import { LAMP } from './hide-lamp.js';
 import { PlanChange, RulePlanner } from './planner.js';
+import { Wake } from './wake.js';
 import { C, FONT, HC, setContrast, sfx, unlockAudio } from './style.js';
-import { clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, lastWeek, layout, load, PlanState, save, scheduledMinutes } from './state.js';
+import { MOODS, Mood, today, clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, lastWeek, layout, load, PlanState, save, scheduledMinutes } from './state.js';
 import { BackSide, DepthOccludable, MeshBasicMaterial, OcclusionShadersMode } from '@iwsdk/core';
 /** Demo days run the focus timer accelerated (and say so on the panel). */
 const FOCUS_ACCEL = IS_DEMO ? 120 : 1;
@@ -114,6 +115,21 @@ export class MorningDeskSystem extends createSystem({
   /** ids of tasks a hand ray currently hovers (autoplay aims with it). */
   hoveredIds(): string[] { return [...this.items.values()].filter((x) => x.entity.hasComponent(Hovered)).map((x) => x.id); }
   noAutoAgent = false; // autoplay asks the planner explicitly
+  /** steps 1-2: Room wakes up + mood check (MR flow; never in autoplay / ?clean / ?wake=0). */
+  wake!: Wake; private moodAsked = false; private wakeGroups = new Map<Group, Entity>();
+  private wakeOn(): boolean { const q = new URLSearchParams(location.search); return this.mrFlow() && !q.has('autoplay') && !CLEAN_CAPTURE && q.get('wake') !== '0'; }
+  private setMood(m: Mood): void {
+    this.moodAsked = true;
+    const before = clone(this.s); const after = clone(this.s); after.mood = m; after.moodDay = today();
+    let n = 0; for (let c = this.planner.nextSplit(after); c && n < 30; c = this.planner.nextSplit(after)) { Object.assign(after, clone(c.after)); n++; }
+    const { block, brk } = MOODS[m];
+    const summary = `Mood: ${m}. ${n ? `Split ${n} block${n > 1 ? 's' : ''} into ≤${block}m` : `Blocks up to ${block}m`}${brk ? `, ${brk}m break after each` : ', no breaks'}`;
+    if (this.pending) { this.s = clone(this.pending.before); this.pending = null; } // a mood pick replaces an open suggestion
+    if (!n && !brk) { this.s = clone(after); this.agentMsg = summary; save(this.s); this.agentTimer = 1.2; this.redrawAll(); return; } // focused + nothing to split: no change to approve
+    const ch: PlanChange = { kind: 'split', summary, before, after };
+    this.pending = ch; this.s = clone(after); this.agentMsg = summary; this.justKept = false;
+    sfx.split(); save(this.s); this.syncItems(); this.redrawAll();
+  }
 
   init(): void {
     // ?tutorial=1: fresh start: wipe saved desk/card/wall state, then the sample desk loads (never in demo)
@@ -241,6 +257,16 @@ export class MorningDeskSystem extends createSystem({
       if (this.focus?.phase === 'ask') this.moreTime(); else if (!this.focus) { this.startFocus(it.id); this.tutEvent('detail'); }
     });
     this.queries.planes.subscribe('qualify', (e) => this.tryWall(e));
+    this.wake = new Wake({
+      scene: this.world.scene, desk: this.desk, wall: this.wall, trackW: TRACK_W,
+      head: () => { const cam = this.headCam(); cam.updateMatrixWorld(); return { pos: new Vector3().setFromMatrixPosition(cam.matrixWorld), fwd: new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new Quaternion())) }; },
+      cardOrder: () => { const s = this.s; return [...s.timeline, ...s.stack, ...s.tomorrow].filter((id, i, a) => s.tasks[id] && a.indexOf(id) === i); },
+      wallScale: () => this.wallScale,
+      group: (g) => { this.wakeGroups.set(g, this.world.createTransformEntity(g, { persistent: true })); },
+      pressable: (mesh, parent, action) => { const e = this.world.createTransformEntity(mesh, this.wakeGroups.get(parent)); e.addComponent(RayInteractable); e.addComponent(PokeInteractable); this.buttons.set(e.index, { label: { mesh } as unknown as Label, entity: e, action }); },
+      askMood: () => !this.moodAsked && (IS_DEMO || this.s.moodDay !== today()),
+      onMood: (m) => this.setMood(m),
+    });
     this.cleanupFuncs.push(this.world.visibilityState.subscribe((v) => {
       this.setBackground(v === VisibilityState.NonImmersive);
       // hand grabbing only in XR; the flat view uses our own mouse drag (avoids two systems moving a card)
@@ -1458,7 +1484,7 @@ export class MorningDeskSystem extends createSystem({
   update(delta: number): void {
     // v2.1 MR stack-up: while Focus or Wind down is open, the wall boards step aside so no two panels overlap;
     // idle planner header (nothing pending, no message) is hidden in MR
-    { const mrOn = this.mrFlow(); const modal = mrOn && (!!this.focus || !!this.wind);
+    { const mrOn = this.mrFlow(); const modal = mrOn && (!!this.focus || !!this.wind || !!this.wake?.moodShown()); // mood check: like Wind down, side board + desk cards step aside
       const focusOn = mrOn && !!this.focus; // Focus hides all boards; Wind down keeps the timeline + meetings visible (panel sits below the timeline)
       for (const e of [this.leftE, this.wallE]) if (e?.object3D) e.object3D.visible = !focusOn;
       if (this.rightE?.object3D) this.rightE.object3D.visible = !modal;
@@ -1508,6 +1534,7 @@ export class MorningDeskSystem extends createSystem({
       if (it.snap !== undefined) { it.snap += delta; const t = it.snap; bounce = t < 0.6 ? 0.09 * Math.exp(-t * 7) * Math.sin(t * 22) : 0; if (t >= 0.6) it.snap = undefined; }
       const sc = it.label.mesh.scale.x + ((hov ? 1.07 : 1) - it.label.mesh.scale.x) * k;
       it.label.mesh.scale.setScalar(it.snap !== undefined ? 1 + bounce : sc);
+      if (this.wake?.busy()) it.label.mesh.scale.multiplyScalar(Math.max(0.001, this.wake.cardK(it.id))); // step 1: cards appear one by one
       if (hov && place === 'timeline') hovTimeline = it.id;
     }
     this.updateTip(hovTimeline);
@@ -1522,9 +1549,13 @@ export class MorningDeskSystem extends createSystem({
     }
     this.persistWall();
     this.mrStep(delta);
+    // steps 1-2: wake once the desk + wall are placed this session
+    if (this.wake) { if (!this.inXR()) { if (this.wake.started()) this.wake.reset(); } // once per XR session (Re-place does not replay it)
+      else if (!this.wake.started() && this.wakeOn() && this.mr.phase === 'done') this.wake.start();
+      this.wake.update(delta); }
     if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.mr.vr;
     // agent acts on its own after a short beat
-    if (this.agentTimer > 0) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }
+    if (this.agentTimer > 0 && !this.wake?.busy() && !this.wake?.moodShown()) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }
     // tutorial
     if (this.tutorial.mesh.visible) { const t = this.tutorial.mesh.scale.x; this.tutorial.mesh.scale.setScalar(t + (1 - t) * k); }
     // the level root marks children matrixAutoUpdate=false; our objects move every frame, so keep them live

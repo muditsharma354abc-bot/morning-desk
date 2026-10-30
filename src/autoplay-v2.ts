@@ -51,7 +51,9 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const button = (name: string) => [...sys.buttons.values()].find((b: any) => b.label.mesh.visible && b.label.mesh.userData.btn?.includes(name));
   const snap = () => JSON.stringify([!!sys.focus, sys.mr.phase, sys.wind?.step ?? -1, sys.s.streak, sys.agentMsg, document.body.dataset.wind ?? '']);
   const press = async (name: string) => {
-    const b = button(name); if (!b) { say(`(button "${name}" not found)`); return; }
+    let b = button(name); const tw0 = performance.now(); // retry: at a low frame rate boards/buttons can take a while to reappear
+    while (!b && performance.now() - tw0 < 30000) { say(`(waiting for "${name}"…)`); await sleep(500); b = button(name); }
+    if (!b) throw new Error(`button "${name}" not found after 30 s`);
     const p = posOf(b.label.mesh);
     const n = new Vector3(0, 0, 1).applyQuaternion(b.label.mesh.getWorldQuaternion(new (b.label.mesh.quaternion.constructor)())).toArray() as V3;
     const off = (d: number): V3 => [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d];
@@ -75,8 +77,8 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   // Reel (&wake=1): Room wakes up plays, then a real poke on a mood orb (&mood=low|okay|focused, default okay) and 👍 Keep
   { const q = new URLSearchParams(location.search);
     if (q.get('wake') === '1') {
-      say('Room wakes up'); await until(() => document.body.dataset.wake === 'done', 15000);
-      await until(() => document.body.dataset.mood === 'ask', 3000); await sleep(1200);
+      say('Room wakes up'); await until(() => document.body.dataset.wake === 'done', 30000);
+      await until(() => document.body.dataset.mood === 'ask', 20000); await sleep(1200);
       const m = (['low', 'okay', 'focused'].includes(q.get('mood') ?? '') ? q.get('mood') : 'okay') as string;
       const o = sys.wake.orbItems.find((x: any) => x.m === m);
       if (o) { say(`Mood: ${m}`); const p = posOf(o.label.mesh);
@@ -84,10 +86,17 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
         const off = (d: number): V3 => [p[0] + n[0] * d, p[1] + n[1] * d, p[2] + n[2] * d];
         R.poseId = 'point'; const from = cur;
         await tween(900, (k) => R.setPin({ anchor: 'index-tip', target: lerp3(from, off(0.07), k) }));
-        await tween(350, (k) => R.setPin({ anchor: 'index-tip', target: lerp3(off(0.07), off(-0.015), k) }));
-        await tween(350, (k) => R.setPin({ anchor: 'index-tip', target: lerp3(off(-0.015), off(0.1), k) })); cur = off(0.1);
-        await until(() => !!sys.pending || document.body.dataset.morning === '0', 4000); await sleep(2200);
-        if (sys.pending) { say('👍 Keep'); await press('Keep'); await sleep(1500); } }
+        // poke by wall-clock time and hold at depth (low fps: a quick pass can fall between frames); retry, then pick directly
+        for (let tries = 0; tries < 3 && document.body.dataset.mood === 'ask'; tries++) {
+          await tween(500, (k) => R.setPin({ anchor: 'index-tip', target: lerp3(off(0.07), off(-0.015), k) }));
+          await until(() => document.body.dataset.mood !== 'ask', 1200);
+          await tween(400, (k) => R.setPin({ anchor: 'index-tip', target: lerp3(off(-0.015), off(0.07), k) }));
+        }
+        if (document.body.dataset.mood === 'ask') { log('moodFallback'); sys.wake.pick(m); }
+        R.setPin({ anchor: 'index-tip', target: off(0.1) }); cur = off(0.1);
+        if (!(await until(() => !sys.wake.moodShown(), 6000))) { say('autoplay stopped: mood check did not close'); return; }
+        await until(() => !!sys.pending || document.body.dataset.morning === '0', 15000); await sleep(2200);
+        if (sys.pending) { say('👍 Keep'); try { await press('Keep'); } catch (e) { say(`autoplay stopped: ${(e as Error).message}`); return; } await sleep(1500); } }
     } }
   const card = (id: string) => posOf(sys.items.get(id).label.mesh);
   try {

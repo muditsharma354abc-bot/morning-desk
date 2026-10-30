@@ -5,17 +5,23 @@
 //     both by poke and by pinch (hand ray) on its buttons (needs the dev server: uses the window.__mdTest hook).
 // Usage: node scripts/predeploy-check.mjs [baseUrl]   (default https://localhost:8091/morning-desk/; run `npx vite --port 8091` first)
 import { chromium } from 'playwright';
-const BASE = process.argv[2] || 'https://localhost:8091/morning-desk/';
+const args = process.argv.slice(2); const THROTTLE = Number((args.find((a) => a.startsWith('--throttle')) ?? '').split('=')[1] || (args.includes('--throttle') ? 6 : 0));
+const BASE = args.find((a) => !a.startsWith('--')) || 'https://localhost:8091/morning-desk/';
+// --throttle[=N]: rendering forced to ~4 fps and CPU slowed N× (default 6) through CDP, like a slow recording box; the autoplay must still finish or stop with a banner, never hang
 const fails = []; const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails.push(m); };
 const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-const page = async () => { const p = await (await b.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1280, height: 720 } })).newPage(); p.errs = []; p.on('pageerror', (e) => p.errs.push(e.message)); return p; };
+const page = async () => { const p = await (await b.newContext({ ignoreHTTPSErrors: true, viewport: THROTTLE ? { width: 1280, height: 800 } : { width: 1280, height: 720 } })).newPage(); p.errs = []; p.on('pageerror', (e) => p.errs.push(e.message));
+  if (THROTTLE) await p.addInitScript(() => { const raf = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = (cb) => { const id = setTimeout(() => raf(cb), 400); return id; }; }); // ≤ 2-3 fps (the emulator's XR frames ride on rAF)
+  if (THROTTLE) { const cdp = await p.context().newCDPSession(p); await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE }); }
+  return p; };
 const sayOf = (p) => p.evaluate(() => { const els = [...document.querySelectorAll('div')].filter((d) => d.textContent.includes('autoplay demo')); return els.length ? els[els.length - 1].lastChild.textContent : ''; });
 
+if (THROTTLE) console.log(`CPU throttled ${THROTTLE}×`);
 // 1. full autoplay
 const ONLY = process.env.ONLY; // e.g. ONLY=pinch to re-run one check while debugging
-if (!ONLY) { const p = await page(); await p.goto(BASE + '?demo=1&autoplay=1&mr=1&hands=1&clean=1&wake=1&mood=okay');
+if (!ONLY || ONLY === 'autoplay') { const p = await page(); await p.goto(BASE + '?demo=1&autoplay=1&mr=1&hands=1&clean=1&wake=1&mood=okay');
   const T0 = Date.now(); let say = '', seen = new Set();
-  while (Date.now() - T0 < 480000) { say = await sayOf(p).catch(() => ''); if (say) seen.add(say.slice(0, 4)); if (/complete|stopped/.test(say)) break; await p.waitForTimeout(500); }
+  while (Date.now() - T0 < (THROTTLE ? 1500000 : 480000)) { const prev = say; say = await sayOf(p).catch(() => ''); if (say !== prev && process.env.VERBOSE) console.log(`  ${((Date.now() - T0) / 1000).toFixed(0)}s ${say}`); if (say) seen.add(say.slice(0, 4)); if (/complete|stopped/.test(say)) break; await p.waitForTimeout(500); }
   ok(seen.has('Room') || seen.has('Mood'), 'autoplay: wake-up + mood check ran');
   ok(/v2 demo complete/.test(say), `autoplay reached the end (${say})`);
   ok(await p.evaluate(() => document.body.dataset.wind === 'closed'), 'autoplay: Wind down closed (day closed)');
@@ -25,7 +31,7 @@ if (!ONLY) { const p = await page(); await p.goto(BASE + '?demo=1&autoplay=1&mr=
 for (const [q, want] of ONLY ? [] : [['?demo=1', 'hand'], ['?demo=1&controllers=1', 'controller']]) {
   const p = await page(); await p.goto(BASE + q); await p.waitForTimeout(4000);
   ok(await p.evaluate(() => window.IWER_DEVICE?.primaryInputMode) === want, `input default for ${q} is ${want}`); ok(!p.errs.length, `no page errors on ${q}`); await p.close(); }
-for (const how of ONLY ? [ONLY] : ['poke', 'pinch']) {
+for (const how of ONLY === 'autoplay' ? [] : ONLY ? [ONLY] : ['poke', 'pinch']) {
   const p = await page(); await p.goto(BASE + '?demo=1&mr=1&hands=1&wake=0'); await p.waitForTimeout(3500); await p.click('#btn-enter'); await p.waitForTimeout(7000);
   const hook = await p.evaluate(() => !!window.__mdTest); if (!hook) { ok(false, `wind-down by ${how}: needs the dev server (test hook)`); await p.close(); continue; }
   await p.evaluate(() => { window.IWER_DEVICE.primaryInputMode = 'hand'; window.__mdTest.openWindDown(); }); await p.waitForTimeout(1200);

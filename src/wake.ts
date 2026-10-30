@@ -173,6 +173,8 @@ export class Wake {
   pick(m: Mood): void {
     if (!this.moodOpen || this.picked) return;
     this.picked = m; this.pickT = 0; document.body.dataset.mood = `picked:${m}`;
+    // guaranteed close on wall-clock time: at a low frame rate (or a stalled tab) the dt-driven highlight may not reach 0.9 s
+    const hold = () => { if (this.picked !== m || !this.moodOpen) return; if (this.pickHold) { setTimeout(hold, 300); return; } this.applyPick(m); }; setTimeout(hold, 1600);
     tone(m === 'low' ? 1 : m === 'okay' ? 3 : 5, 0.5, 0.06);
   }
   private applyPick(m: Mood): void {

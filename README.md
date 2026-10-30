@@ -1,6 +1,6 @@
 # Morning Desk
 
-**Plan, focus, adapt and measure your day with your hands.** Morning Desk is a mixed-reality day planner for Meta Quest 3: your tasks sit on the desk in front of you, your day hangs on the wall in front of you, a focus mode helps you do one thing at a time, and a rule-based smart planner keeps the schedule realistic as the day changes.
+**Plan, focus, adapt and measure your day with your hands.** Morning Desk is a mixed-reality day planner for Meta Quest 3: your tasks sit on the desk in front of you, your day hangs on the wall in front of you, a focus mode helps you do one thing at a time, and the planner keeps the schedule realistic as the day changes. The planner is an on-device planning agent: rule-based, no API key, no network calls (the app only loads its own bundled files).
 
 [![Live demo](https://img.shields.io/badge/live%20demo-GitHub%20Pages-2f7d5b)](https://muditsharma354abc-bot.github.io/morning-desk/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -14,6 +14,7 @@ Built for the Start Developer Competition (Productivity track, New Experience di
 | [Demo state](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1) | A fixed sample day with a 14:00 Client sync and a 90-minute deep-work block that runs into it, so the planner has something to fix. It uses separate storage and never touches your real plan. |
 | [Autoplay demo](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1) | A hands-free walkthrough of about 2–3 minutes that drives the real app through emulated hands, with captions. It needs a desktop browser (it uses the built-in emulator). |
 | [v2 hands-only autoplay](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1&hands=1) | The v2 walkthrough driven by emulated hands only, no controller at any step. |
+| [Morning autoplay](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1&hands=1&clean=1&wake=1&mood=okay) | The v2 hands-only walkthrough that starts with Room wakes up, then picks the Okay mood and keeps the morning plan (`&mood=low` or `&mood=focused` to change it). |
 | [v2 MR autoplay](https://muditsharma354abc-bot.github.io/morning-desk/?demo=1&autoplay=1&mr=1) | About 2 minutes in the emulator's simulated room: desk and timeline placed on the room's table and wall, the same spot after re-entering XR, Re-place, one focus block, and Wind-down. |
 
 On a Quest 3, open the live app in the Meta Quest Browser and press **Enter XR**. On a desktop browser the built-in emulator runs it, no headset or extension needed.
@@ -48,6 +49,40 @@ Everything is placed for a seated user, with key UI close to the centre of view.
 
 ![Focus Mode with the accelerated demo timer label](docs/screenshots/02-focus-mode.png)
 
+## Room wakes up, Mood check and Morning agent (steps 1–3)
+
+These run in the MR flow (`?mr=1` in the emulator, automatic on a headset). All three are **tested in the emulator only**; none has been tried on a Quest 3 yet.
+
+### Room wakes up
+
+Once per XR session, after the desk and timeline are placed, the room wakes up in about 9 seconds: the room dims and turns warm, a sunrise glow rises behind the timeline, a light beam draws the timeline in, the task cards appear one by one with a soft chime (all of them within about 5 seconds), and an original desk buddy opens its eyes. The buddy has four expressions (asleep, awake, sleepy, happy) and reacts to your mood and to planner changes. A pinch or poke skips the wake-up. It never runs in autoplay or with `?clean=1`, and `&wake=0` turns it off; in autoplay, `&wake=1` forces it to play once at the start.
+
+![Room wakes up in the emulator, 2.6 s in: the light beam has drawn the timeline and the first cards have appeared; the desk buddy is at the bottom left](docs/screenshots/10-room-wakes-up.png)
+
+### Mood check
+
+Right after the wake-up, the panel asks **How do you feel today?** with three orbs you pick by poke or pinch. The mood sets the longest focus block and the break after each block:
+
+| Mood | Longest block | Break between blocks |
+| --- | --- | --- |
+| **Low** | 20 min | 10 min |
+| **Okay** | 45 min | 5 min |
+| **Focused** | 90 min | none |
+
+On a Low day the morning plan keeps at most 5 open blocks (one extra must-do can be added); the rest wait in Pending. The mood is saved on this device only, and it's asked once a day. In autoplay with `&wake=1`, the mood is picked automatically: Okay by default, or `&mood=low|okay|focused`.
+
+![Mood check in the emulator: the Low orb highlighted with "20 min + breaks", next to the "How do you feel today?" label](docs/screenshots/11-mood.png)
+
+### Morning agent
+
+Once a day, after the mood check, the planner (the same rules as above) makes one morning plan from yesterday's leftovers, today's meetings and your mood: meeting clashes first, then mood splits, the Low-day cap, overload moved to tomorrow, and must-dos from the desk that fit. Cards fly to their new places, and it shows **one** line, for example *"Okay mood. Moved 5 things for you: 1 must-do planned, 1 clash fixed, 2 split, 1 to tomorrow"*, with **👍 Keep** / **👎 Undo** by thumbs or button. Undo keeps your mood and puts the plan back. If nothing needs to move, it says so.
+
+During the day it adjusts quietly, with no panel or popup: if a meeting clash appears it fixes it, and if you finish a block early it fills the freed time with a Pending task that fits. The moved cards nudge and the buddy reacts. In the evening (once your planned time is over), **🌙 Wind down** opens by itself once that day with a cool blue tint, and the tasks you keep roll over into tomorrow's plan. In the demo the evening only starts with `?evening=1`. In autoplay the morning plan runs once, without quiet adjusts or the automatic Wind down.
+
+![Morning agent in the emulator: "Your agent changed your day. Okay mood. Moved 5 things for you: 1 must-do planned, 1 clash fixed, 2 split, 1 to tomorrow" with Keep and Undo buttons](docs/screenshots/12-morning-agent.png)
+
+![Wind down opening by itself in the emulator's virtual room in the evening, with the cool tint (real, non-demo plan, so the streak shows 4 days)](docs/screenshots/13-evening-wind-down.png)
+
 ## The smart planner
 
 Tap **✨ Plan for me** and the planner proposes one concrete change at a time. Each change animates into place and waits for your decision: thumbs-up keeps it, thumbs-down undoes it and restores the exact previous plan. **👍 Keep** and **👎 Undo** buttons are there as a fallback.
@@ -60,7 +95,7 @@ It checks, in this order:
 
 After a focus block, later blocks shift by the measured time (for example, "done 8m early, later blocks moved 8m earlier"), and the planner runs these checks again.
 
-The planner is a rule-based planner, no API key, no network calls (the app only loads its own bundled files). It sits behind a small `Planner` interface in `src/planner.ts`.
+The planner is an on-device planning agent: rule-based, no API key, no network calls (the app only loads its own bundled files). It sits behind a small `Planner` interface in `src/planner.ts`.
 
 ![Close-up of the smart planner flagging the block that runs into the 14:00 meeting](docs/screenshots/03-meeting-clash.png)
 
@@ -90,6 +125,8 @@ Hands are the default input everywhere, including the emulator (controllers and 
 | **Quick pinch (tap)** | Opens Focus Mode for that task. |
 | **Thumbs-up / thumbs-down** | Keeps or undoes the planner's change, and thumbs-up finishes a focus block. Hold it for about half a second. |
 | **Fingertip poke** | Presses buttons. |
+| **Pinch or poke during Room wakes up** | Skips the wake-up. |
+| **Poke or pinch a mood orb** | Picks Low, Okay or Focused. |
 
 Every gesture has a button alternative, and in hands mode every button can be pressed by fingertip poke or by pinching along the hand ray (tested in the emulator):
 
@@ -97,7 +134,7 @@ Every gesture has a button alternative, and in hands mode every button can be pr
 | --- | --- |
 | Pinch-drag a card to the timeline | **📅 Plan it** |
 | Flick sideways | **⏭ Skip** |
-| Thumbs-up / thumbs-down on a planner change | **👍 Keep** / **👎 Undo** |
+| Thumbs-up / thumbs-down on a planner change or the morning plan | **👍 Keep** / **👎 Undo** |
 | Thumbs-up in Focus Mode | **✓ Done** (plus **+15 min** and **✕ Exit**) |
 | Thumbs-up / thumbs-down in Wind-down | **→ Tomorrow** / **✕ Drop** |
 
@@ -118,10 +155,11 @@ The autoplay demo selects the emulator's hands mode by itself. To pinch by hand 
 ## What's tested and what isn't
 
 - Everything has been run in the built-in WebXR emulator (IWER) and its simulated room only. Nothing has been tested on a real Quest 3 yet.
-- **Needs a headset to verify:** how real passthrough looks and feels, whether cards read well on a real desk, plane detection and hit-test in real rooms, anchors surviving real sessions, reboots and space changes, real-world reach and comfort (seated or standing), real hand tracking for pinch, poke and thumbs, and the VR fallback on a device without immersive-ar.
+- **Needs a headset to verify:** how real passthrough looks and feels, whether cards read well on a real desk, plane detection and hit-test in real rooms, anchors surviving real sessions, reboots and space changes, real-world reach and comfort (seated or standing), real hand tracking for pinch, poke and thumbs, Room wakes up (glow, beam, buddy) on a real wall, the mood orbs, the morning agent, quiet adjusts and the automatic evening Wind down, and the VR fallback on a device without immersive-ar.
 - Manual pinch through the emulator's pinch latch has been verified by script, but not yet by a person dragging by hand.
 - Ray pinch on far timeline blocks is untested on a headset.
 - **Not yet tested on a headset:** frame rate (no fps figure is claimed anywhere), real placement on a real desk and wall, anchors coming back after a reload, and **→ Tomorrow** by poke.
+- Room wakes up, Mood check and the Morning agent (steps 1–3) are tested in the emulator only.
 - The [headset test plan](docs/HEADSET_TEST_PLAN.md) lists the Quest 3 session that will check these.
 
 ## Mixed reality: desk, wall and anchors (v2)
@@ -170,6 +208,8 @@ Close-up distances: cards sit within reach (about 60 cm), the Focus and summary 
 - `?tutorial=1` restarts the tutorial on a fresh sample desk, and `?hands=1` makes the autoplay walkthrough use hands only (`?demo=1&autoplay=1&mr=1&hands=1`). Hands are already the default everywhere else.
 - `?contrast=1` starts in high contrast, and `?test=1` shows the headset test checklist.
 - `?controllers=1` switches the emulator to controllers instead of hands, and `?gizmos=1` shows the emulator's move gizmos (both hidden by default).
+- `&wake=0` turns Room wakes up off. In autoplay, `&wake=1` plays it once at the start and then picks the mood automatically, with `&mood=low|okay|focused` (default Okay): `?demo=1&autoplay=1&mr=1&hands=1&clean=1&wake=1&mood=okay`.
+- `?evening=1` treats it as evening, so Wind down can open by itself (needed in the demo).
 - `?debug=1` shows placement and anchor status on the timeline header.
 - Test flags: `?vr=1` (as if immersive-ar weren't supported), `?noplanes=1` (forces tap to place) and `?nextday=1` (pretends it's tomorrow, to check the wind-down rollover).
 
@@ -207,10 +247,11 @@ It builds with the `/morning-desk/` base path and publishes `dist/` to the `gh-p
 ```
 src/
   desk-system.ts   desk, wall timeline, boards, gestures, Focus Mode, summary, tutorial, wind-down, streak
-  planner.ts       Planner interface + RulePlanner (meeting clash, long-block split, overload)
+  planner.ts       Planner interface + RulePlanner (meeting clash, long-block split, overload, morning plan)
   state.ts         plan state, demo day with meetings, layout around meetings, local storage, streak
   autoplay.ts      ?demo=1&autoplay=1 walkthrough through emulated hands
   autoplay-v2.ts   ?demo=1&autoplay=1&mr=1 walkthrough (placement, Re-place, wind-down)
+  wake.ts          Room wakes up, desk buddy, mood orbs
   label.ts, style.ts   canvas labels, palette, sounds
 ```
 

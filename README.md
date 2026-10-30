@@ -18,7 +18,7 @@ Built for the Start Developer Competition (Productivity track, New Experience di
 
 On a Quest 3, open the live app in the Meta Quest Browser and press **Enter XR**. On a desktop browser the built-in emulator runs it, no headset or extension needed.
 
-![Morning Desk layout: meetings on the left, timeline ahead, pending tasks on the right clear of the hand marker, must-dos on the desk](docs/screenshots/01-spatial-layout-final.png)
+![Morning Desk layout in the emulator: meetings on the left, timeline ahead, pending tasks on the right, a must-do on the desk](docs/screenshots/01-spatial-layout-final.png)
 
 ## Plan, Focus, Adapt, Measure
 
@@ -62,7 +62,7 @@ After a focus block, later blocks shift by the measured time (for example, "done
 
 The planner is a rule-based planner, no API key, no network calls (the app only loads its own bundled files). It sits behind a small `Planner` interface in `src/planner.ts`.
 
-![The smart planner flagging the 90-minute block that runs into the 14:00 meeting](docs/screenshots/03-meeting-clash.png)
+![Close-up of the smart planner flagging the block that runs into the 14:00 meeting](docs/screenshots/03-meeting-clash.png)
 
 ## The day summary
 
@@ -134,9 +134,9 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 - **📍 Re-place** on the desk moves everything to where you're sitting now.
 - **VR fallback:** if the browser can't do immersive-ar, you get a virtual room instead.
 
-![Plain XR in the emulator's room with ?test=1 on: desk at the table, timeline ahead (a plain-XR frame, not the v2 MR wall placement; the fps shown is software-rendered, not a Quest number)](docs/screenshots/05-mr-placement.png)
+![The v2 MR layout in the emulator: meetings left, timeline ahead, pending right, buttons along the desk edge](docs/screenshots/05-mr-placement.png)
 
-![Wind-down in the v2 MR walkthrough: keep or drop each unfinished task for tomorrow (in this v2 MR frame the 7 days and Contrast chips still sit over the monitor; a fix is in progress)](docs/screenshots/06-wind-down.png)
+![Wind down in the v2 MR walkthrough, step 1: done today, focus time and unfinished tasks, then decide what rolls into tomorrow (in this frame the dialog edge still sits slightly over the timeline; a fix is on main)](docs/screenshots/06-wind-down.png)
 
 ## Accessibility, progress and testing
 

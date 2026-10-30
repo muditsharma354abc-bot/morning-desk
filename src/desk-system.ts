@@ -375,7 +375,7 @@ export class MorningDeskSystem extends createSystem({
       g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
     };
     side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17);
-    if (this.mrFlow()) { side(this.right, -27, 0.7, -0.12); this.avoidObstacles(head); }
+    if (this.mrFlow()) { side(this.right, -32, 0.7, -0.22); this.avoidObstacles(head); } // below the timeline's right end
   }
   /** Nearest detected table-height horizontal plane in front of the head: the desk centre just inside its near edge. */
   private findTable(): Vector3 | null {

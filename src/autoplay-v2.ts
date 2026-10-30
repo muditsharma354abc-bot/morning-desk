@@ -74,7 +74,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const log = (x: string) => { document.body.dataset.v2log = `${document.body.dataset.v2log ?? ''}${x};`; };
   const card = (id: string) => posOf(sys.items.get(id).label.mesh);
   try {
-    say(`1/6  passthrough: desk on your real table, plan on your real wall (${sys.mr.desk} · ${sys.mr.wall})`);
+    say('1/6  passthrough: desk on your real table, plan on your real wall');
     await move(H(-0.05, -0.36, -0.22), 900); await sleep(4000);
 
     say('2/6  leave and re-enter XR: desk + wall come back in the same spot (persistent anchor)');

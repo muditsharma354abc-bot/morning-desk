@@ -27,6 +27,17 @@ if (!ONLY || ONLY === 'autoplay') { const p = await page(); await p.goto(BASE + 
   ok(await p.evaluate(() => document.body.dataset.wind === 'closed'), 'autoplay: Wind down closed (day closed)');
   ok(!p.errs.length, `autoplay: no page errors ${p.errs.join(' | ')}`); await p.close(); }
 
+// 1b. Room Zones beat (&zones=1): Focus + Quick patches claimed, a card on Focus (Okay mood), look-to-target glow fires, run still ends
+if (!ONLY || ONLY === 'zones') { const p = await page(); await p.goto(BASE + '?demo=1&autoplay=1&mr=1&hands=1&clean=1&wake=1&mood=okay&zones=1');
+  const T0 = Date.now(); let say = '', zs = null;
+  while (Date.now() - T0 < (THROTTLE ? 1500000 : 480000)) { say = await sayOf(p).catch(() => ''); if (!zs && /^1\/6/.test(say)) zs = await p.evaluate(() => { const t = window.__mdTest; if (!t) return null; const V = t.desk.position.constructor, Q = t.desk.quaternion.constructor;
+      const kinds = t.zones.map((z) => z.kind); const on = t.s.stack.map((id) => (t.zoneTarget(id, new V(), new Q()) ? t.lastZone : '')); const focus = on.filter((k) => k === 'focus').length, quick = on.filter((k) => k === 'quick').length;
+      return { kinds, focus, quick, gaze: document.body.dataset.zonesBeat ?? '' }; }); if (/complete|stopped/.test(say)) break; await p.waitForTimeout(500); }
+  ok(!!zs && zs.kinds.includes('focus') && zs.kinds.includes('quick'), `zones: Focus + Quick claimed (${JSON.stringify(zs)})`);
+  ok(!!zs && zs.focus > 0, 'zones: Focus patch has a card on Okay');
+  ok(!!zs && zs.gaze === 'gaze', 'zones: look-to-target glow fired on the faced card');
+  ok(/v2 demo complete/.test(say), `zones autoplay reached the end (${say})`); ok(!p.errs.length, `zones: no page errors ${p.errs.join(' | ')}`); await p.close(); }
+
 // 2. hands-only
 for (const [q, want] of ONLY ? [] : [['?demo=1', 'hand'], ['?demo=1&controllers=1', 'controller']]) {
   const p = await page(); await p.goto(BASE + q); await p.waitForTimeout(4000);

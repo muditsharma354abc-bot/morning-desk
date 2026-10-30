@@ -46,11 +46,12 @@ for (const how of ONLY === 'autoplay' ? [] : ONLY ? [ONLY] : ['poke', 'pinch']) 
   const p = await page(); await p.goto(BASE + '?demo=1&mr=1&hands=1&wake=0'); await p.waitForTimeout(3500); await p.click('#btn-enter'); await p.waitForTimeout(7000);
   const hook = await p.evaluate(() => !!window.__mdTest); if (!hook) { ok(false, `wind-down by ${how}: needs the dev server (test hook)`); await p.close(); continue; }
   await p.evaluate(() => { window.IWER_DEVICE.primaryInputMode = 'hand'; window.__mdTest.openWindDown(); }); await p.waitForTimeout(1200);
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 20; i++) {
     const st = await p.evaluate(() => document.body.dataset.wind ?? ''); if (st === 'closed') break;
-    await p.evaluate(async (how) => { const t = window.__mdTest, R = window.IWER_DEVICE.hands.right; const w = t.wind; const n = w.list.length;
+    if (process.env.VERBOSE) console.log("  wind", st, await p.evaluate(() => JSON.stringify({ step: window.__mdTest.wind?.step, n: window.__mdTest.wind?.list.length, xr: window.__mdTest.inXR() })));
+    const r = await p.evaluate(async (how) => { const t = window.__mdTest, R = window.IWER_DEVICE.hands.right; const w = t.wind; const n = w.list.length;
       const want = w.step === 0 ? 'Next' : w.step <= n ? (t.s.tasks[w.list[w.step - 1]].priority === 1 ? 'Tomorrow' : 'Drop') : 'Close day';
-      const btn = [...t.buttons.values()].find((x) => x.label.mesh.visible && x.label.mesh.userData.btn?.includes(want)); if (!btn) return;
+      const btn = [...t.buttons.values()].find((x) => x.label.mesh.visible && x.label.mesh.userData.btn?.includes(want)); if (!btn) return 'nobtn:' + want;
       const m = btn.label.mesh; const V = m.position.constructor, Q = m.quaternion.constructor; m.updateMatrixWorld();
       const pos = m.getWorldPosition(new V()); const nrm = new V(0, 0, 1).applyQuaternion(m.getWorldQuaternion(new Q())); const sl = (ms) => new Promise((r) => setTimeout(r, ms));
       if (how === 'poke') { R.poseId = 'point'; for (let i = 0; i <= 25; i++) { const d = 0.07 - 0.09 * i / 25; R.setPin({ anchor: 'index-tip', target: [pos.x + nrm.x * d, pos.y + nrm.y * d, pos.z + nrm.z * d] }); await sl(30); } R.setPin({ anchor: 'index-tip', target: [pos.x + nrm.x * 0.2, pos.y - 0.2, pos.z + nrm.z * 0.2] }); await sl(500); return; }
@@ -61,8 +62,8 @@ for (const how of ONLY === 'autoplay' ? [] : ONLY ? [ONLY] : ['poke', 'pinch']) 
         rs.updateMatrixWorld(true); const o = rs.getWorldPosition(new V()); const cur = new V(0, 0, -1).applyQuaternion(rs.getWorldQuaternion(new Q()));
         q = new Q().setFromUnitVectors(cur, pos.clone().sub(o).normalize()).multiply(q); }
       await sl(300); for (let i = 0; i <= 8; i++) { R.updatePinchValue(i / 8); await sl(16); } await sl(150); for (let i = 8; i >= 0; i--) { R.updatePinchValue(i / 8); await sl(16); } await sl(500);
-      R.setPin({ anchor: 'wrist', target: head.clone().add(new V(0.25, -0.5, -0.1)).toArray() }); await sl(300); return;
-      R.updatePinchValue(1); await sl(200); R.updatePinchValue(0); await sl(500); }, how);
+      R.setPin({ anchor: 'wrist', target: head.clone().add(new V(0.25, -0.5, -0.1)).toArray() }); await sl(300); return want + ' ' + pos.toArray().map((v) => v.toFixed(2)).join(',');
+      R.updatePinchValue(1); await sl(200); R.updatePinchValue(0); await sl(500); }, how); if (process.env.VERBOSE) console.log('   ->', r);
     await p.waitForTimeout(400);
   }
   ok(await p.evaluate(() => document.body.dataset.wind === 'closed'), `wind-down closes by hand ${how}`); ok(!p.errs.length, `no page errors (${how}) ${p.errs.join(' | ')}`); await p.close(); }

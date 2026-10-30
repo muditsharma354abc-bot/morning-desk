@@ -105,6 +105,34 @@ export class MorningDeskSystem extends createSystem({
   private tmp = new Vector3(); private tmp2 = new Vector3(); private q = new Quaternion();
   private detailId = '';
   private lastDomPress = 0;
+  private lastPokeAt = 0; // last button press (Pressed or swept poke): one press per finger pass
+  private lastSweptAt = 0;
+  private prevTips = new Map<XRHandedness, Vector3>();
+  /** Low-fps poke: at a few fps the fingertip can pass through a button between two frames, so the per-frame
+   *  PokeInteractable never sees it inside. Test the fingertip's path since the last frame (a segment) against each
+   *  visible button plane: a front-to-back crossing within the button presses it, by event, not by frame count. */
+  private sweptPoke(): void {
+    const xr = this.world.renderer.xr; const frame = xr.getFrame(); const ref = xr.getReferenceSpace(); if (!frame || !ref) return;
+    const origin = this.world.player; origin.updateMatrixWorld();
+    for (const src of frame.session.inputSources) {
+      const sp = src.hand?.get('index-finger-tip'); const pose = sp && frame.getJointPose?.(sp, ref);
+      if (!pose) { this.prevTips.delete(src.handedness); continue; }
+      const cur = new Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z).applyMatrix4(origin.matrixWorld);
+      const prev = this.prevTips.get(src.handedness); this.prevTips.set(src.handedness, cur);
+      const th = src.hand?.get('thumb-tip'); const tp = th && frame.getJointPose?.(th, ref); const tpos = tp ? new Vector3(tp.transform.position.x, tp.transform.position.y, tp.transform.position.z).applyMatrix4(origin.matrixWorld) : null;
+      if (tpos && tpos.distanceTo(cur) < 0.04) continue; // pinching, not pointing: the ray handles it
+      if (!prev || prev.distanceTo(cur) < 0.012 || prev.distanceTo(cur) > 0.3 || performance.now() - this.lastPokeAt < 1500) continue; // slow finger: PokeInteractable handles it
+      for (const b of this.buttons.values()) {
+        const m = b.label.mesh; if (!m.visible) continue; let vis = true; m.traverseAncestors((a) => { if (!a.visible) vis = false; }); if (!vis) continue;
+        const g = (m.geometry as { parameters?: { width?: number; height?: number } }).parameters; if (!g?.width || !g.height) continue;
+        const a = m.worldToLocal(prev.clone()), c = m.worldToLocal(cur.clone()); if (!(a.z > 0.003 && c.z < 0.003)) continue;
+        const k = (a.z - 0.003) / (a.z - c.z); const x = a.x + (c.x - a.x) * k, y = a.y + (c.y - a.y) * k;
+        if (Math.abs(x) > g.width / 2 || Math.abs(y) > g.height / 2) continue;
+        if (performance.now() - this.lastDomPress <= 400 || this.wake?.busy() || performance.now() - this.skipAt < 1200) continue;
+        this.lastPokeAt = this.lastSweptAt = performance.now(); b.action(); return;
+      }
+    }
+  }
   private meetingLabels: Label[] = [];
   private deskRow: Mesh[] = [];
   // P1 spatial layout: meetings board on the left, pending board on the right, progress in the background
@@ -396,7 +424,7 @@ export class MorningDeskSystem extends createSystem({
       if (performance.now() - this.lastDomPress <= 400) return;
       if (this.wake?.busy()) { this.wake.finish(); this.skipAt = performance.now(); return; } // step 1: a poke / pinch skips the wake-up
       if (performance.now() - this.skipAt < 1200) return; // the skipping poke must not also press what is under it
-      const b = this.buttons.get(e.index); if (b) { b.action(); return; }
+      const b = this.buttons.get(e.index); if (b) { if (performance.now() - this.lastSweptAt < 1500) return; this.lastPokeAt = performance.now(); b.action(); return; } // a swept poke just pressed it
       // ray + pinch on a task (e.g. a timeline block out of reach) opens Focus Mode
       // flat view: the mouse handler decides click (Focus) vs drag/flick on release; a press here would open Focus mid-drag
       if (!this.inXR()) return;
@@ -1703,6 +1731,7 @@ export class MorningDeskSystem extends createSystem({
     if (this.detail.mesh.visible) { const d = this.detail.mesh.scale.x; this.detail.mesh.scale.setScalar(d + (1 - d) * k); }
     if (!this.detailId) this.detail.mesh.visible = false;
     if ((this.pending || this.focus || this.wind) && this.inXR()) this.detectThumbs(delta);
+    if (this.inXR()) this.sweptPoke();
     this.updateFocus(delta);
     if (this.sumDraw && this.summary.mesh.visible && this.streakAnim.t < 3.6) {
       const p0 = Math.floor(this.streakAnim.t * 12); this.streakAnim.t += delta;

@@ -1,0 +1,44 @@
+# Morning Desk: 1-hour Quest 3 / 3S test plan
+
+Goal: prove on real hardware that the whole experience works **hands-only (no controller)**, at **≥ 60 fps**, with placement on a real table and wall. Record honest numbers; don't round up.
+
+## What to bring
+- A Quest 3 or 3S, charged, with hand tracking on (Settings → Movement tracking → Hand tracking: on, plus auto-switch to hands). Put the controllers away.
+- A laptop and a USB-C cable. On a Mac, install **Meta Quest Developer Hub (MQDH)** or **Android File Transfer** beforehand (see Recording).
+- A real desk or table and a wall in front of it. Sit down.
+
+## URLs (Quest Browser)
+- Test run: `https://<pages-url>/morning-desk/?test=1`. This shows a checklist panel to your left plus a live fps readout (avg / min over the last 10 s, and draw calls).
+- Demo data: `https://<pages-url>/morning-desk/?demo=1&test=1`
+- High contrast from the start: add `&contrast=1`
+
+Tap **Enter MR** in the page with a hand pinch-ray (the browser's own hand pointer). No controller is needed anywhere.
+
+## Schedule (60 min)
+| Time | Do | Record |
+|---|---|---|
+| 0–5 | Open the `?test=1` URL, tap Enter MR, and allow the permission prompts (space / anchors). | Did passthrough start? Any prompt text. |
+| 5–12 | **Placement.** Look at your table and wait for the desk to appear. Does it sit *on* the real table, squared to its edge? Does the timeline land *on* the real wall, at a sensible size? Tick "Desk on real table" and "Timeline on real wall" by poking them. | Placement mode shown on the header (table plane / hit-test / tap). A photo of the result. |
+| 12–17 | **Re-place.** Shift your chair, then poke 📍 Re-place. Try once by pinch-ray from a distance too. | Did it re-find the table? |
+| 17–22 | **Anchors.** Exit XR (Meta button), reload the page, and re-enter. Do the desk and wall come back in the same spot? Then fully close the browser and reopen. | Same spot? Drift in cm. |
+| 22–35 | **Gestures plus their buttons** (tick each one): pinch-drag a card onto the wall timeline · tap a card → Focus → 📅 Plan it · flick a card sideways to skip · ⏭ Skip button · 👍 to finish focus · Done / +15 / Exit · "Plan for me" then 👍 Keep / 👎 Undo (gesture and button) · Wind down → 👍/👎 and → Tomorrow / ✕ Drop. | Per gesture: worked first try? How many tries? Any false triggers (e.g. thumbs firing while typing)? |
+| 35–40 | **Accessibility.** Poke ◐ Contrast and check readability in a bright room. Poke 📊 7 days. | Readable? |
+| 40–45 | **Tutorial.** Run Tutorial from the desk row and finish all steps. | Time to finish, and any step that got stuck. |
+| 45–55 | **FPS proof** (below), then **Recording** (below). | Numbers. |
+| 55–60 | Write up the notes. | |
+
+## FPS proof (separate run, NOT while recording)
+Recording itself can drop fps, so measure first, without recording.
+1. If developer mode and the **OVR Metrics Tool** are available, enable its fps overlay, run the app for 2 minutes (place, drag, focus, wind-down), and take a screenshot of the overlay.
+2. Otherwise read the `?test=1` overlay: write down **avg** and **min** (10 s window) during idle, during a card drag, and with the focus panel open.
+3. Write down the actual numbers seen. **Claim 60 fps only if it was actually observed** (for example "avg 72 / min 61 during drag"). Tick "60 fps held" only in that case.
+
+## Recording
+1. **Before recording**, open Quest **Camera settings** and pick **landscape / 16:9** if offered. The default can be square, which would force a crop.
+2. Use **Camera → Record video** (passthrough + app, 1080p). Record a **2–3 min seated, steady** pass covering: placement, Re-place, one pinch-and-drop, a thumbs-up, and Wind-down. Move your head slowly.
+3. **Copying:** on a Mac the Quest doesn't mount as a drive, so install **MQDH** or **Android File Transfer** beforehand, and bring the laptop and a USB-C cable.
+4. **Shop / borrowed headset:** copy the MP4 off, then have the recording deleted from the device. **Backup** if copying fails: cast via the **Meta Horizon phone app** and screen-record on the phone.
+5. **Labelling:** only real headset shots drop the "emulator" label. Any emulator shot left in v6 keeps it.
+
+## Report back
+The checklist ticks (a screenshot of the `?test=1` panel), the fps numbers, placement photos, tries per gesture, and any bug with exact steps.

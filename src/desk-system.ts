@@ -34,6 +34,10 @@ function seatEmulatedHead(): boolean {
 }
 /** ?debug=1: show placement / anchor status on the timeline header (never in user-facing modes). */
 const DEBUG = new URLSearchParams(location.search).has('debug');
+/** ?test=1: headset test checklist (poke to tick) + live fps (avg / min over the last 10 s). */
+const TEST = new URLSearchParams(location.search).has('test');
+const TEST_KEY = 'morning-desk.test.v1';
+const TEST_ITEMS = ['Desk on real table', 'Timeline on real wall', 'Re-place works', 'Anchors after reload', 'Pinch-drag → plan', '📅 Plan it button', 'Flick → skip', '⏭ Skip button', 'Tap → Focus · 👍 done', 'Done/+15/Exit btns', '👍/👎 Keep · Undo', 'Wind-down 👍/👎 + btns', 'High contrast', 'Last 7 days', 'Tutorial completes', '60 fps held'];
 const MR_KEY = 'morning-desk.mr.v2';               // { uuid, desk pose, wall pose } relative to IWSDK's persistent anchor
 const ANCHOR_UUID_KEY = 'iwsdk_scene_anchor_uuid'; // IWSDK SceneUnderstandingSystem's persistent anchor UUID
 
@@ -96,6 +100,7 @@ export class MorningDeskSystem extends createSystem({
   private deskRow: Mesh[] = [];
   // P1 spatial layout: meetings board on the left, pending board on the right, progress in the background
   private left = new Group(); private right = new Group(); private leftE!: Entity;
+  private tmpQ = new Quaternion(); private testG = new Group(); private testHead?: Label; private testTicks: Record<string, boolean> = {}; private fpsB: number[] = []; private fpsCur = 0; private fpsT = 0; private fpsShowT = 0;
   private history!: Label; private histT = 0; private wallScale = 1; private tableYaw: number | null = null;
   private meetBoard!: Label; private pendHeader!: Label; private progress!: Label;
   private focusPanel!: Label; private focusE!: Entity; private focusBtns: Btn[] = [];
@@ -127,10 +132,13 @@ export class MorningDeskSystem extends createSystem({
     this.leftE = this.world.createTransformEntity(this.left, { persistent: true }); this.world.createTransformEntity(this.right, { persistent: true });
     this.meetBoard = new Label(0.4, 0.3); this.left.add(this.meetBoard.mesh);
     // between-session progress: last 7 days from stored history only (never in demo runs, which use fixed demo data)
-    this.history = new Label(0.4, 0.13); this.history.mesh.position.set(0, -0.235, 0); this.left.add(this.history.mesh);
+    this.history = new Label(0.4, 0.13); this.history.mesh.position.set(0, -0.29, 0); this.left.add(this.history.mesh);
     this.history.mesh.visible = false; this.drawHistory();
     // accessibility: high-contrast toggle (also ?contrast=1)
-    const hc = this.button('◐ Contrast', 0.11, () => this.toggleContrast(), this.leftE); hc.label.mesh.position.set(0.13, 0.175, 0.004); if (CLEAN_CAPTURE && !MR_FORCED) hc.label.mesh.visible = false; // the filmed v1 layout stays as recorded
+    const hb = this.button('📊 7 days', 0.11, () => { this.drawHistory(); this.history.mesh.visible = !this.history.mesh.visible; this.histT = this.history.mesh.visible ? 25 : 0; }, this.leftE);
+    hb.label.mesh.position.set(0.01, -0.185, 0.004); if (CLEAN_CAPTURE && !MR_FORCED) hb.label.mesh.visible = false;
+    if (TEST) this.buildTest();
+    const hc = this.button('◐ Contrast', 0.11, () => this.toggleContrast(), this.leftE); hc.label.mesh.position.set(0.13, -0.185, 0.004); if (CLEAN_CAPTURE && !MR_FORCED) hc.label.mesh.visible = false; // the filmed v1 layout stays as recorded
     this.pendHeader = new Label(0.36, 0.05); this.pendHeader.mesh.position.set(0, 0.16, 0); this.right.add(this.pendHeader.mesh);
     this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag to plan', 30, H / 2, 20, C.ink, 700, W - 40); });
     this.progress = new Label(0.7, 0.08); this.progress.mesh.position.set(0, 0.44, -0.25); this.wall.add(this.progress.mesh);
@@ -184,7 +192,7 @@ export class MorningDeskSystem extends createSystem({
 
     this.detail = new Label(0.3, 0.16); this.detail.mesh.visible = false;
     const de = this.world.createTransformEntity(this.detail.mesh, this.deskE);
-    de.addComponent(RayInteractable);
+    de.addComponent(RayInteractable); de.addComponent(PokeInteractable);
     this.buttons.set(de.index, { label: this.detail, entity: de, action: () => this.openDetail('') });
     this.detail.mesh.position.set(-0.02, 0.05, 0.1); this.detail.mesh.rotation.x = -0.75;
 
@@ -208,7 +216,7 @@ export class MorningDeskSystem extends createSystem({
     this.summary = new Label(0.54, 0.44); this.summary.mesh.visible = false;
     // draw the summary over desk labels behind it (the streak tag must not show through)
     (this.summary.mesh.material as MeshBasicMaterial).depthTest = false; this.summary.mesh.renderOrder = 10;
-    const se = this.world.createTransformEntity(this.summary.mesh, this.deskE); se.addComponent(RayInteractable);
+    const se = this.world.createTransformEntity(this.summary.mesh, this.deskE); se.addComponent(RayInteractable); se.addComponent(PokeInteractable);
     this.buttons.set(se.index, { label: this.summary, entity: se, action: () => { this.summary.mesh.visible = false; } });
 
     this.buildWindDown();
@@ -309,7 +317,7 @@ export class MorningDeskSystem extends createSystem({
       const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
       g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
     };
-    side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17); // below the timeline, right of the desk // inside a ~16:9 capture FoV
+    side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17); side(this.testG, 68, 0.62, -0.12); // below the timeline, right of the desk // inside a ~16:9 capture FoV
     for (const pe of this.queries.planes.entities) this.tryWall(pe);
     this.placed = true; this.redrawHeader();
   }
@@ -397,7 +405,7 @@ export class MorningDeskSystem extends createSystem({
       const a = yaw + (deg * Math.PI) / 180; const d = new Vector3(-Math.sin(a), 0, -Math.cos(a));
       g.position.copy(head).addScaledVector(d, dist); g.position.y = head.y + dy; g.rotation.set(0, a, 0);
     };
-    side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17);
+    side(this.left, 37, 0.9, -0.04); side(this.right, -31, 0.82, -0.17); side(this.testG, 68, 0.62, -0.12);
     if (this.mrFlow()) { side(this.right, -32, 0.7, -0.22); this.avoidObstacles(head); } // below the timeline's right end
   }
   /** Nearest detected table-height horizontal plane in front of the head: the desk centre just inside its near edge. */
@@ -895,6 +903,25 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- streak, tutorial, details
+  private buildTest(): void {
+    const te = this.world.createTransformEntity(this.testG, { persistent: true });
+    try { this.testTicks = JSON.parse(localStorage.getItem(TEST_KEY) ?? '{}'); } catch { /* fresh */ }
+    this.testHead = new Label(0.4, 0.06); this.testHead.mesh.position.set(0, 0.2, 0); this.testG.add(this.testHead.mesh);
+    TEST_ITEMS.forEach((name, i) => {
+      const b = this.button(name, 0.19, () => { this.testTicks[name] = !this.testTicks[name]; localStorage.setItem(TEST_KEY, JSON.stringify(this.testTicks)); draw(); sfx.yes(); }, te);
+      const draw = () => b.label.draw((g, W, H) => { const on = !!this.testTicks[name]; panel(g, W, H, on ? '#1C3A26' : C.glassHi, on ? '#8FD1A5' : C.mute, 1); text(g, `${on ? '☑' : '☐'} ${name}`, 18, H / 2, 17, '#fff', 600, W - 24); });
+      draw(); b.label.mesh.position.set(i < 8 ? -0.1 : 0.1, 0.14 - (i % 8) * 0.046, 0.004);
+    });
+    this.drawFps();
+  }
+  /** fps avg / min over the last 10 one-second buckets, plus draw calls and triangles (renderer.info). */
+  private drawFps(): void {
+    if (!this.testHead) return;
+    const b = this.fpsB, avg = b.length ? b.reduce((a, x) => a + x, 0) / b.length : 0, min = b.length ? Math.min(...b) : 0;
+    const info = this.world.renderer.info.render; const done = TEST_ITEMS.filter((n) => this.testTicks[n]).length;
+    this.testHead.draw((g, W, H) => { panel(g, W, H, C.glass, min >= 60 ? '#8FD1A5' : C.warn, 1);
+      text(g, `🧪 ${avg.toFixed(0)} fps avg · ${min.toFixed(0)} min (10 s) · ${info.calls} calls · ${done}/${TEST_ITEMS.length}`, 20, H / 2, 17, '#fff', 700, W - 28); });
+  }
   /** Focus-panel button alternative to pinch-dragging a card onto the wall timeline (appends it). */
   private planFromFocus(): void {
     const id = this.focus?.id; if (!id) return; this.endFocus(false);
@@ -1381,10 +1408,13 @@ export class MorningDeskSystem extends createSystem({
   private liftScale(it: Item, k: number): void { const s = it.label.mesh.scale.x; it.label.mesh.scale.setScalar(s + (1.12 - s) * k); }
   // ---------------------------------------------------------------- frame
   update(delta: number): void {
+    if (TEST) { this.fpsCur++; this.fpsT += delta; this.fpsShowT += delta;
+      if (this.fpsT >= 1) { this.fpsB.push(this.fpsCur / this.fpsT); if (this.fpsB.length > 10) this.fpsB.shift(); this.fpsCur = 0; this.fpsT = 0; }
+      if (this.fpsShowT >= 0.5) { this.fpsShowT = 0; this.drawFps(); } }
     if (this.histT > 0) { this.histT -= delta; if (this.histT <= 0) this.history.mesh.visible = false; }
     if (this.placeDelay > 0) this.placeDelay -= delta;
     else if (!this.placed) this.place();
-    const out = this.tmp2, outQ = new Quaternion();
+    const out = this.tmp2, outQ = this.tmpQ;
     const k = 1 - Math.exp(-delta * 9);
     let hovTimeline = '';
     for (const it of this.items.values()) {

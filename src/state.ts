@@ -87,6 +87,8 @@ export function demoState(): PlanState {
     t('read', 'Read 20 pages', 30, 3, 'Current book, paper copy.'),
     t('prep', 'Prep client sync notes', 20, 1, 'Three questions for the 14:00 call.'),
   ];
+  // the morning is already behind you: 3 blocks done, so Wind down reads 4 of 7 done · 3 unfinished · 1 dropped (all from the same tasks)
+  for (const x of tasks) if (['standup', 'review', 'inbox'].includes(x.id)) { x.done = true; x.actual = x.minutes; }
   return {
     tasks: Object.fromEntries(tasks.map((x) => [x.id, x])),
     stack: ['prep', 'blog', 'plants', 'read'],

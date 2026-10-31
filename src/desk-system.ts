@@ -53,7 +53,8 @@ const ANCHOR_UUID_KEY = 'iwsdk_scene_anchor_uuid'; // IWSDK SceneUnderstandingSy
 const DESK_FWD = 0.4, DESK_DOWN = 0.26;      // card spread in easy reach
 const WALL_FWD = 1.1;
 const WALL_UP = 0.16;                          // timeline sits above a real monitor (seated eye line ≈ monitor top)                         // fallback timeline distance, eye height
-const TRACK_W = 0.96, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
+const SHOW_RESET = new URLSearchParams(location.search).get('reset') === '1'; // Demo reset only behind &reset=1 (hidden in the default / recording view)
+const TRACK_W = 1.4, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
 const CARD_W = 0.16, CARD_H = 0.09;
 /** Small icon for icon-only (short) timeline blocks. */
 function iconFor(title: string): string {
@@ -375,12 +376,12 @@ export class MorningDeskSystem extends createSystem({
     this.agentPanel.mesh.position.set(-0.15, 0.31, 0.01); this.wall.add(this.agentPanel.mesh); // above the header: never over a real monitor below the timeline
     this.yesBtn = this.button('👍 Keep', 0.16, () => this.decide(true), this.wallE, 0.062);
     this.noBtn = this.button('👎 Undo', 0.16, () => this.decide(false), this.wallE, 0.062);
-    this.yesBtn.label.mesh.position.set(0.27, 0.345, 0.01); this.noBtn.label.mesh.position.set(0.27, 0.275, 0.01);
+    this.yesBtn.label.mesh.position.set(0.37, 0.345, 0.01); this.noBtn.label.mesh.position.set(0.37, 0.275, 0.01); // clear of the agent panel even at its 1.2x waiting scale
 
     // Desk buttons (reachable row at the back of the desk).
     const row: [string, () => void][] = [
       ['📋 Plan for me', () => this.runAgent(true)], [WIND_DOWN ? '🌙 Wind down' : '✓ Done', () => (WIND_DOWN ? this.openWindDown() : this.finishDay())],
-      ['? Tutorial', () => this.startTutorial()], ['↺ Demo reset', () => this.reset(true)],
+      ['? Tutorial', () => this.startTutorial()], ...(SHOW_RESET ? [['↺ Demo reset', () => this.reset(true)] as [string, () => void]] : []),
     ];
     row.forEach(([t, fn], i) => {
       const b = this.button(t, 0.125, fn, this.deskE); this.deskRow.push(b.label.mesh);
@@ -927,7 +928,7 @@ export class MorningDeskSystem extends createSystem({
     if (this.agentPanel.mesh.parent !== this.wall) {
       this.wall.add(this.agentPanel.mesh); this.wall.add(this.yesBtn.label.mesh); this.wall.add(this.noBtn.label.mesh);
       this.agentPanel.mesh.position.set(-0.15, 0.31, 0.01); this.agentPanel.mesh.rotation.set(0, 0, 0);
-      this.yesBtn.label.mesh.position.set(0.27, 0.345, 0.01); this.noBtn.label.mesh.position.set(0.27, 0.275, 0.01);
+      this.yesBtn.label.mesh.position.set(0.37, 0.345, 0.01); this.noBtn.label.mesh.position.set(0.37, 0.275, 0.01); // clear of the agent panel even at its 1.2x waiting scale
       this.yesBtn.label.mesh.rotation.set(0, 0, 0); this.noBtn.label.mesh.rotation.set(0, 0, 0);
     }
     const boxes = this.obstacleBoxes(head, fwd); this.mr.blocked = boxes.length ? '' : 'no meshes';
@@ -1060,7 +1061,7 @@ export class MorningDeskSystem extends createSystem({
         } else {
           const lines = this.wrap(g, `${t.done ? '✓ ' : ''}${t.title}`, W - 18, 32, 2);
           lines.forEach((ln, i) => text(g, ln, 10, H * (lines.length > 1 ? 0.22 + i * 0.27 : 0.32), 32, C.ink, 700, W - 16));
-          text(g, `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${t.done ? `${dur(t.actual ?? t.minutes)} of ${dur(t.minutes)}` : dur(t.minutes)}`, 10, H * 0.82, 27, C.ink, 500, W - 16);
+          { const d = t.done ? `${dur(t.actual ?? t.minutes)} of ${dur(t.minutes)}` : dur(t.minutes); const full = `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${d}`; g.font = `500 27px ${FONT}`; text(g, g.measureText(full).width <= W - 16 ? full : d, 10, H * 0.82, 27, C.ink, 500, W - 16); } // never cut mid-time
         }
       } else {
         panel(g, W, H, C.glass, C.prio[t.priority], 1);
@@ -1552,7 +1553,7 @@ export class MorningDeskSystem extends createSystem({
     bind('btn-done', () => (WIND_DOWN ? this.openWindDown() : this.finishDay()));
     if (WIND_DOWN) { const el = document.getElementById('btn-done'); if (el) el.textContent = '🌙 Wind down'; }
     bind('btn-tutorial', () => this.startTutorial());
-    bind('btn-demo', () => this.reset(true));
+    bind('btn-demo', () => this.reset(true)); { const el = document.getElementById('btn-demo'); if (el && !SHOW_RESET) el.style.display = 'none'; }
     bind('btn-contrast', () => this.toggleContrast());
     bind('btn-sample', () => this.toggleSample());
     bind('btn-history', () => { this.drawHistory(); this.history.mesh.visible = !this.history.mesh.visible; this.histT = this.history.mesh.visible ? 25 : 0; this.syncHistBtns(); });

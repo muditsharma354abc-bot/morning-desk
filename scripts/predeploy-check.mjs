@@ -23,7 +23,7 @@ if (!ONLY || ONLY === 'autoplay') { const p = await page(); await p.goto(BASE + 
   const T0 = Date.now(); let say = '', seen = new Set();
   while (Date.now() - T0 < (THROTTLE ? 1500000 : 480000)) { const prev = say; say = await sayOf(p).catch(() => ''); if (say !== prev && process.env.VERBOSE) console.log(`  ${((Date.now() - T0) / 1000).toFixed(0)}s ${say}`); if (say) seen.add(say.slice(0, 4)); if (/complete|stopped/.test(say)) break; await p.waitForTimeout(500); }
   ok(seen.has('Room') || seen.has('Mood'), 'autoplay: wake-up + mood check ran');
-  ok(/v2 demo complete/.test(say), `autoplay reached the end (${say})`);
+  ok(/Demo complete/.test(say), `autoplay reached the end (${say})`);
   ok(await p.evaluate(() => document.body.dataset.wind === 'closed'), 'autoplay: Wind down closed (day closed)');
   ok(!p.errs.length, `autoplay: no page errors ${p.errs.join(' | ')}`); await p.close(); }
 
@@ -36,7 +36,7 @@ if (!ONLY || ONLY === 'zones') { const p = await page(); await p.goto(BASE + '?d
   ok(!!zs && zs.kinds.includes('focus') && zs.kinds.includes('quick'), `zones: Focus + Quick claimed (${JSON.stringify(zs)})`);
   ok(!!zs && zs.focus > 0, 'zones: Focus patch has a card on Okay');
   ok(!!zs && zs.gaze === 'gaze', 'zones: look-to-target glow fired on the faced card');
-  ok(/v2 demo complete/.test(say), `zones autoplay reached the end (${say})`); ok(!p.errs.length, `zones: no page errors ${p.errs.join(' | ')}`); await p.close(); }
+  ok(/Demo complete/.test(say), `zones autoplay reached the end (${say})`); ok(!p.errs.length, `zones: no page errors ${p.errs.join(' | ')}`); await p.close(); }
 
 // 2. hands-only
 for (const [q, want] of ONLY ? [] : [['?demo=1', 'hand'], ['?demo=1&controllers=1', 'controller']]) {

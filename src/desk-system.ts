@@ -55,6 +55,9 @@ const WALL_FWD = 1.1;
 const WALL_UP = 0.16;                          // timeline sits above a real monitor (seated eye line ≈ monitor top)                         // fallback timeline distance, eye height
 /** Thumb microgesture swipe (Quest hand gamepad buttons 5-6) advances Wind down; verified in the IWER emulator only (not on a headset). */
 const SWIPE_OK = true;
+/** Comfort: poke panels ~44 cm away, centred ~12° below the eye line; near panels drawn at 0.75x so they stay inside the central view. */
+const VIEW_D = 0.44, VIEW_DROP = -0.44 * Math.tan((12 * Math.PI) / 180), NEAR_S = 0.75;
+const SHOW_TIPS = false;
 const SHOW_RESET = new URLSearchParams(location.search).get('reset') === '1'; // Demo reset only behind &reset=1 (hidden in the default / recording view)
 const TRACK_W = 0.96, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
 const CARD_W = 0.16, CARD_H = 0.09;
@@ -306,8 +309,8 @@ export class MorningDeskSystem extends createSystem({
     this.gazeGlow.visible = !!it;
     if (it) { const m = it.label.mesh; const g = this.gazeGlow; m.updateMatrixWorld();
       g.position.copy(m.position).add(new Vector3(0, 0, -0.002).applyQuaternion(m.quaternion)); g.quaternion.copy(m.quaternion);
-      const pulse = 0.5 + 0.5 * Math.sin(this.gazeT * 6); const sc = m.scale.x * (1 + 0.04 * pulse);
-      g.scale.set((it.label.w + 0.06) * sc, (it.label.h + 0.06) * sc, 1); (g.material as MeshBasicMaterial).opacity = 0.75 + 0.25 * pulse; } // bright emissive rim, pulsing
+      const pulse = 0.5 + 0.5 * Math.sin(this.gazeT * 2.5); const sc = m.scale.x * (1 + 0.01 * pulse);
+      g.scale.set((it.label.w + 0.04) * sc, (it.label.h + 0.04) * sc, 1); (g.material as MeshBasicMaterial).opacity = 0.28 + 0.07 * pulse; } // subtle soft highlight only (never reveals actions)
     document.body.dataset.gaze = this.gazeId;
   }
   private evening(): boolean {
@@ -412,18 +415,11 @@ export class MorningDeskSystem extends createSystem({
     // Focus Mode panel (replaces the old details card): big, in front of the head, with a timer.
     this.focusPanel = new Label(0.46, 0.27); this.focusPanel.mesh.visible = false;
     this.focusE = this.world.createTransformEntity(this.focusPanel.mesh, this.deskE);
-    const fb: [string, number, number, () => void][] = [
-      ['25 min', -0.165, 0.09, () => this.setFocusLength(25)], ['50 min', -0.055, 0.09, () => this.setFocusLength(50)],
-      ['+15 min', 0.055, 0.09, () => this.moreTime()], ['✓ Done', 0.165, 0.09, () => this.endFocus(true)],
-      ['✕ Exit', 0.19, -0.17, () => this.endFocus(false)],
-      // button alternatives to pinch-drag (plan it) and flick (skip)
-      ['📅 Plan it', 0.02, 0.1, () => this.planFromFocus()], ['⏭ Skip', 0.11, 0.07, () => this.skipFromFocus()],
-    ];
-    for (const [t, x, w, fn] of fb) {
-      const b = this.button(t, w, fn, this.focusE); b.label.mesh.position.set(x, /Exit|Plan it|Skip/.test(t) ? 0.11 : -0.105, 0.004); this.focusBtns.push(b);
-    }
-    for (const i of [4, 5, 6]) this.focusBtns[i].label.resize(i === 5 ? 0.1 : 0.07, 0.034);
+    // one row of pills under the panel (task options Skip / Tomorrow / +15 live in the ⋯ menu)
+    const fb: [string, () => void][] = [['25 min', () => this.setFocusLength(25)], ['50 min', () => this.setFocusLength(50)], ['+15 min', () => this.moreTime()], ['✓ Done', () => this.endFocus(true)], ['✕ Exit', () => this.endFocus(false)]];
+    fb.forEach(([t, fn], i) => { const b = this.button(t, 0.084, fn, this.focusE, 0.048); b.label.mesh.position.set(-0.188 + i * 0.094, -0.17, 0.004); this.focusBtns.push(b); });
     // passthrough dimmer: a dark shell around the head while focusing
+    this.buildOptions();
     this.dim = new Mesh(new SphereGeometry(2.5, 24, 16), new MeshBasicMaterial({ color: '#0b0f0d', transparent: true, opacity: 0, side: BackSide, depthWrite: false }));
     this.dim.renderOrder = -1; this.dim.visible = false; scene.add(this.dim);
     this.summary = new Label(0.54, 0.44); this.summary.mesh.visible = false;
@@ -835,7 +831,7 @@ export class MorningDeskSystem extends createSystem({
   openWindDown(): void {
     if (this.focus) this.endFocus(false); this.summary.mesh.visible = false; this.pending = null;
     this.wind = { step: 0, list: this.unfinished(), kept: [], dropped: [] };
-    this.windPanel.mesh.visible = true; this.placeInView(this.windPanel.mesh, 0.55, this.mrFlow() ? -0.22 : -0.14); sfx.pick(); // MR: fully below the wall timeline
+    this.windPanel.mesh.visible = true; this.windPanel.mesh.scale.setScalar(NEAR_S); this.placeInView(this.windPanel.mesh, VIEW_D, VIEW_DROP + 0.03); sfx.pick(); // MR: fully below the wall timeline
     document.body.dataset.wind = '0'; this.drawWind(); if (this.mrFlow()) this.wake?.tint(true); // evening: cool blue tint
   }
   /** A = Next / → Tomorrow / ✓ Close day · B = Close / ✕ Drop / ← Back. 👍 / 👎 do the same. */
@@ -978,10 +974,10 @@ export class MorningDeskSystem extends createSystem({
       if (u >= 1) { m.scale.setScalar(base); delete m.userData.pressBase; this.pressing.delete(m); continue; }
       m.scale.setScalar(base * (1 - 0.1 * Math.sin(Math.PI * Math.min(1, u)))); }
   }
-  private button(t: string, w: number, action: () => void, parent: Entity, h = 0.042): Btn {
+  private button(t: string, w: number, action: () => void, parent: Entity | undefined, h = 0.042): Btn {
     const label = new Label(w, h);
     this.drawBtn(label, t);
-    const entity = this.world.createTransformEntity(label.mesh, parent);
+    const entity = parent ? this.world.createTransformEntity(label.mesh, parent) : this.world.createTransformEntity(label.mesh);
     entity.addComponent(RayInteractable);
     entity.addComponent(PokeInteractable); // fingertip press
     const b = { label, entity, action: () => { this.pressFx(label.mesh); action(); } };
@@ -1150,6 +1146,7 @@ export class MorningDeskSystem extends createSystem({
   }
   private release(id: string, p: Vector3, lateralSpeed: number, moved: number, held: number, flick = false): void {
     this.marker.visible = false;
+    if (this.holdOpened === id) { this.holdOpened = ''; return; } // the pinch-hold opened ⋯ options: the card just settles back
     if (moved < (this.inXR() ? 0.04 : 0.025) && held < (this.inXR() ? 4 : 0.5)) { if (this.focus?.phase === 'ask') { this.moreTime(); return; } if (!this.focus) { this.startFocus(id); this.tutEvent('detail'); } return; }
     const idx = flick ? null : this.wallSlot(p);
     const s = this.s;
@@ -1327,13 +1324,14 @@ export class MorningDeskSystem extends createSystem({
     sfx.timer();
     document.body.dataset.focus = id; // test/automation hook, not rendered
     this.focus = { id, length: 25, t0: performance.now(), base: 0, phase: 'run', shown: '' };
-    this.focusPanel.mesh.visible = true; this.focusPanel.mesh.scale.setScalar(0.8);
-    this.focusBtns[5].label.mesh.visible = this.placeOf(id) !== 'timeline';
-    this.placeInView(this.focusPanel.mesh, 0.6, 0.15); // above a real monitor (wall boards step aside in Focus), clear of its edges; mood orbs closed (wake.closeMood)
+    this.focusPanel.mesh.visible = true; this.focusPanel.mesh.scale.setScalar(NEAR_S * 0.8);
+    this.drawFocusSel();
+    this.placeInView(this.focusPanel.mesh, VIEW_D, VIEW_DROP); // centred in view, ~12° below the eye line, within poke reach; mood orbs closed (wake.closeMood)
     this.wake?.closeMood();
     this.dim.visible = true; sfx.pick();
   }
-  private setFocusLength(n: number): void { if (!this.focus) return; this.focus.length = n; if (this.focus.phase === 'ask') this.moreTime(0); this.focus.shown = ''; sfx.yes(); }
+  private drawFocusSel(): void { const L = this.focus?.length; this.drawBtn(this.focusBtns[0].label, '25 min', L === 25); this.drawBtn(this.focusBtns[1].label, '50 min', L === 50); }
+  private setFocusLength(n: number): void { if (!this.focus) return; this.focus.length = n; this.drawFocusSel(); if (this.focus.phase === 'ask') this.moreTime(0); this.focus.shown = ''; sfx.yes(); }
   private moreTime(add = 15): void {
     const f = this.focus; if (!f) return;
     if (f.phase === 'ask') { f.phase = 'run'; f.t0 = performance.now(); }
@@ -1376,7 +1374,7 @@ export class MorningDeskSystem extends createSystem({
     if (!f) return;
     this.dim.position.copy(new Vector3().setFromMatrixPosition(this.headCam().matrixWorld));
     for (const it of this.items.values()) (it.label.mesh.material as MeshBasicMaterial).opacity = it.id === f.id ? 1 : 0.22;
-    const sc = this.focusPanel.mesh.scale.x; this.focusPanel.mesh.scale.setScalar(sc + (1 - sc) * k);
+    const sc = this.focusPanel.mesh.scale.x; this.focusPanel.mesh.scale.setScalar(sc + (NEAR_S - sc) * k);
     const el = this.focusElapsed();
     if (f.phase === 'run' && el >= f.length) { f.base = f.length; f.phase = 'ask'; sfx.agent(); }
     const left = Math.max(0, f.length - el);
@@ -1685,8 +1683,74 @@ export class MorningDeskSystem extends createSystem({
     this.release(d.id, p, lateral, p.distanceTo(d.p0), (performance.now() - d.t0) / 1000);
   }
 
+  // ---------------------------------------------------------------- ⋯ task options (Skip / +15 / Tomorrow): visible pill per task, or long pinch-hold
+  private dotBtns = new Map<string, Btn>(); private dotDrawn = new Map<string, string>();
+  private optPanel!: Label; private optE!: Entity; private optBtns: Btn[] = []; optId = '';
+  private holdOpened = ''; private holdHint!: Label; private holdHintT = -1;
+  private buildOptions(): void {
+    this.optPanel = new Label(0.2, 0.05); this.optPanel.mesh.visible = false;
+    (this.optPanel.mesh.material as MeshBasicMaterial).depthTest = false; this.optPanel.mesh.renderOrder = 30;
+    this.optE = this.world.createTransformEntity(this.optPanel.mesh);
+    const opts: [string, () => void][] = [['⏭ Skip', () => this.optDo('skip')], ['+15 min', () => this.optDo('more')], ['→ Tomorrow', () => this.optDo('tomorrow')], ['📅 Plan it', () => this.optDo('plan')], ['✕ Close', () => this.closeOptions()]];
+    opts.forEach(([t, fn], i) => { const b = this.button(t, 0.17, fn, this.optE, 0.044); b.label.mesh.position.set(0, -0.06 - i * 0.056, 0.004); (b.label.mesh.material as MeshBasicMaterial).depthTest = false; b.label.mesh.renderOrder = 31; this.optBtns.push(b); }); // one column
+    this.holdHint = new Label(0.2, 0.034); this.holdHint.mesh.visible = false; this.world.scene.add(this.holdHint.mesh);
+    this.holdHint.draw((g, W, H) => { panel(g, W, H, C.glassHi); text(g, 'Tip: hold a card (or tap ⋯) for options', W / 2, H / 2, 17, C.ink, 600, W - 16, 'center'); });
+  }
+  openOptions(id: string): void {
+    const t = this.s.tasks[id]; if (!t || this.focus || this.wind) return;
+    this.optId = id; document.body.dataset.opts = id; sfx.pick();
+    this.optPanel.mesh.visible = true;
+    this.optPanel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, t.title, W / 2, H / 2, 20, C.ink, 700, W - 24, 'center'); });
+    this.optBtns[3].label.mesh.visible = this.placeOf(id) !== 'timeline'; // Plan it: pinch-drag alternative for Pending cards
+    this.placeInView(this.optPanel.mesh, VIEW_D, VIEW_DROP + 0.12); // the column centres ~12° below the eye line
+  }
+  closeOptions(): void { this.optId = ''; this.optPanel.mesh.visible = false; delete document.body.dataset.opts; }
+  private optDo(kind: 'skip' | 'more' | 'tomorrow' | 'plan'): void {
+    const id = this.optId; const s = this.s; const t = s.tasks[id]; this.closeOptions(); if (!t) return;
+    const strip = (a: string[]) => a.filter((x) => x !== id);
+    if (kind === 'more') { t.minutes += 15; sfx.yes(); }
+    else if (kind === 'skip') { s.stack = strip(s.stack); s.timeline = strip(s.timeline); s.tomorrow = strip(s.tomorrow); s.skipped.push(id); sfx.skip(); this.tutEvent('skip'); }
+    else if (kind === 'tomorrow') { s.stack = strip(s.stack); s.timeline = strip(s.timeline); s.tomorrow = [...strip(s.tomorrow), id]; sfx.drop(); }
+    else { s.stack = strip(s.stack); s.tomorrow = strip(s.tomorrow); s.skipped = strip(s.skipped); s.timeline = [...strip(s.timeline), id]; sfx.drop(); this.tutEvent('drop'); }
+    document.body.dataset.optDone = `${kind}:${id}`; this.commit();
+  }
+  /** ⋯ pill: progress ring (gold, the active state) while a pinch-hold is building up. */
+  private drawDot(id: string, b: Btn, prog: number): void {
+    const key = `${b.label.w.toFixed(3)}|${Math.round(prog * 8)}`; if (this.dotDrawn.get(id) === key) return; this.dotDrawn.set(id, key);
+    b.label.mesh.userData.btn = `⋯ options ${id}`;
+    b.label.draw((g, W, H) => { pill(g, W, H); text(g, '⋯', W / 2, H * 0.44, Math.round(H * 0.62), C.ink, 700, W, 'center');
+      if (prog > 0) { g.strokeStyle = C.sel; g.lineWidth = Math.max(3, H * 0.08); g.lineCap = 'round'; g.beginPath(); g.arc(W / 2, H / 2, H * 0.36, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2); g.stroke(); } });
+  }
+  private dotsStep(): void {
+    for (const [id, b] of this.dotBtns) if (!this.items.has(id)) { this.buttons.delete(b.entity.index); b.entity.dispose(); this.dotBtns.delete(id); this.dotDrawn.delete(id); }
+    const hold = this.drag && !this.mouseDrag ? this.drag : null;
+    for (const [id, it] of this.items) {
+      let b = this.dotBtns.get(id);
+      if (!b) { b = this.button('⋯', 0.05, () => this.openOptions(id), undefined, 0.034); this.dotBtns.set(id, b); }
+      const t = this.s.tasks[id]; const place = this.placeOf(id); const m = it.label.mesh;
+      const vis = !!t && !t.done && m.visible && !this.optId && !this.focus && !this.wind && (!this.drag || hold?.id === id) && (place === 'timeline' || place === 'stack') && !this.zoneTarget(id, this.zTmp, this.tmpQ2);
+      b.label.mesh.visible = vis; if (!vis) continue;
+      const wall = place === 'timeline'; const pw = wall ? 0.075 : 0.05, ph = wall ? 0.05 : 0.034; b.label.resize(pw, ph);
+      let prog = 0; if (hold?.id === id && this.holdOpened !== id) { const moved = m.position.distanceTo(hold.p0); prog = moved < 0.02 ? Math.min(1, (performance.now() - hold.t0) / 800) : 0;
+        if (prog >= 1) { this.holdOpened = id; this.openOptions(id); } }
+      this.drawDot(id, b, prog);
+      // timeline: centred under the tile · Pending card: top-right corner, in front of the card
+      const lw = it.label.w, lh = it.label.h;
+      const local = wall ? this.tmp.set(0, -lh / 2 - ph / 2 - 0.008, 0.004) : this.tmp.set(lw / 2 - pw / 2 - 0.006, lh / 2 - ph / 2 - 0.006, 0.006);
+      m.updateMatrixWorld(); b.label.mesh.position.copy(m.localToWorld(local.clone())); b.label.mesh.quaternion.copy(m.getWorldQuaternion(this.tmpQ2));
+      if (!b.label.mesh.userData.pressBase) b.label.mesh.scale.setScalar(m.scale.x);
+    }
+    // one-time hint (first XR session with Pending cards): sits under the first ⋯ pill for 6 s
+    if (this.holdHintT < 0 && this.inXR() && this.mr.phase === 'done' && !this.wake?.busy() && !this.wake?.moodShown() && !localStorage.getItem('morning-desk.hint.hold')) {
+      const first = [...this.dotBtns.values()].find((x) => x.label.mesh.visible && x.label.w < 0.06); if (first) { this.holdHintT = 6; localStorage.setItem('morning-desk.hint.hold', '1'); this.holdHint.mesh.userData.anchor = first.label.mesh; } }
+    if (this.holdHintT > 0) { const a = this.holdHint.mesh.userData.anchor as Mesh; this.holdHint.mesh.visible = !!a?.visible;
+      if (a) { a.updateMatrixWorld(); this.holdHint.mesh.position.copy(a.localToWorld(new Vector3(-0.07, 0.04, 0.004))); this.holdHint.mesh.quaternion.copy(a.getWorldQuaternion(new Quaternion())); } }
+    else this.holdHint.mesh.visible = false;
+  }
+
   // ---------------------------------------------------------------- polish helpers
   private updateTip(id: string): void {
+    if (!SHOW_TIPS) { this.tip.mesh.visible = false; return; } // design pass: no hover tooltips (titles fit on the cards)
     if (id === this.tipId) return;
     this.tipId = id; this.tip.mesh.visible = !!id; if (!id) return;
     const t = this.s.tasks[id]; const m = this.items.get(id)!.label.mesh;
@@ -1774,7 +1838,7 @@ export class MorningDeskSystem extends createSystem({
       it.label.mesh.visible = tgt.visible && !(this.modalKey && (this.modalKey === 'focus' || this.placeOf(it.id) !== 'timeline'));
       const hov = this.hoverId === it.id || it.entity.hasComponent(Hovered) || this.gazeId === it.id; // look to target counts as hover
       const gz = this.gazeId === it.id;
-      if (hov) out.add(this.tmp.set(0, gz ? 0.02 : 0, gz ? 0.045 : 0.018).applyQuaternion(outQ)); // lift toward the user (look to target: clearly lifted)
+      if (hov) out.add(this.tmp.set(0, gz ? 0.004 : 0, gz ? 0.012 : 0.008).applyQuaternion(outQ)); // lift toward the user (look to target: clearly lifted)
       if (this.flyT > 0) { const u = 1 - this.flyT / FLY_T; out.add(this.tmp.set(0, 0, 0.08 * Math.sin(Math.PI * Math.min(1, u * 1.4))).applyQuaternion(outQ)); } // step 3: cards fly in an arc
       const zf = this.zoneFly; const from = zf?.from.get(it.id); const zu = zf ? (performance.now() - zf.t0) / 1200 : 1;
       if (from && zu < 1 && this.zoneTarget(it.id, this.zTmp, this.tmpQ2)) { const e = zu * zu * (3 - 2 * zu); it.label.mesh.position.copy(from).lerp(out, e).add(this.tmp.set(0, 0.06 * Math.sin(Math.PI * e), 0)); } // slow glide onto the patch
@@ -1784,7 +1848,7 @@ export class MorningDeskSystem extends createSystem({
       if (place !== it.place) { if (it.place) it.snap = 0; it.place = place; }
       let bounce = 0;
       if (it.snap !== undefined) { it.snap += delta; const t = it.snap; bounce = t < 0.6 ? 0.09 * Math.exp(-t * 7) * Math.sin(t * 22) : 0; if (t >= 0.6) it.snap = undefined; }
-      const sc = it.label.mesh.scale.x + ((this.gazeId === it.id ? 1.14 : hov ? 1.07 : 1) - it.label.mesh.scale.x) * k;
+      const sc = it.label.mesh.scale.x + ((this.gazeId === it.id ? 1.04 : hov ? 1.03 : 1) - it.label.mesh.scale.x) * k;
       it.label.mesh.scale.setScalar(it.snap !== undefined ? 1 + bounce : sc);
       if (this.wake?.busy()) it.label.mesh.scale.multiplyScalar(Math.max(0.001, this.wake.cardK(it.id))); // step 1: cards appear one by one
       if (hov && place === 'timeline') hovTimeline = it.id;
@@ -1818,7 +1882,7 @@ export class MorningDeskSystem extends createSystem({
         if (this.agentOn() && this.morningRun && !this.pending && !this.wind && !this.focus && !this.wake.busy() && !this.wake.moodShown() && this.s.windAutoDay !== today() && this.evening()) {
           this.s.windAutoDay = today(); save(this.s); this.openWindDown(); document.body.dataset.windAuto = '1'; } } }
     if (this.zoneBtn) this.zoneBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.wake?.moodShown() && !this.focus && !this.wind;
-    this.pressStep(); this.claimStep(delta); this.gazeStep(delta); this.zonePulseStep(); if (this.zoneFly && performance.now() - this.zoneFly.t0 > 1300) this.zoneFly = null;
+    this.pressStep(); this.dotsStep(); if (this.holdHintT > 0) this.holdHintT -= delta; this.claimStep(delta); this.gazeStep(delta); this.zonePulseStep(); if (this.zoneFly && performance.now() - this.zoneFly.t0 > 1300) this.zoneFly = null;
     if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.mr.vr && !this.wake?.moodShown();
     // agent acts on its own after a short beat
     if (this.agentTimer > 0 && !this.wake?.busy() && !this.wake?.moodShown()) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }

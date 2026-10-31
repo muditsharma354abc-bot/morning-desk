@@ -3,6 +3,7 @@
 //  1. Full Reel autoplay (?demo=1&autoplay=1&mr=1&hands=1&clean=1&wake=1&mood=okay): wake-up → mood → Keep → … → Wind down closed.
 //  2. Hands-only: hands are the default input, ?controllers=1 switches to controllers, and Wind down closes by hand
 //     both by poke and by pinch (hand ray) on its buttons (needs the dev server: uses the window.__mdTest hook).
+//  3. Step 5 (&toss=1): hand crumple + throw into the bin → task dropped; 🗑 Toss button fallback; no bin without the flag.
 // Usage: node scripts/predeploy-check.mjs [baseUrl]   (default https://localhost:8091/morning-desk/; run `npx vite --port 8091` first)
 import { chromium } from 'playwright';
 const args = process.argv.slice(2); const THROTTLE = Number((args.find((a) => a.startsWith('--throttle')) ?? '').split('=')[1] || (args.includes('--throttle') ? 6 : 0));
@@ -38,11 +39,38 @@ if (!ONLY || ONLY === 'zones') { const p = await page(); await p.goto(BASE + '?d
   ok(!!zs && zs.gaze === 'gaze', 'zones: look-to-target glow fired on the faced card');
   ok(/v2 demo complete/.test(say), `zones autoplay reached the end (${say})`); ok(!p.errs.length, `zones: no page errors ${p.errs.join(' | ')}`); await p.close(); }
 
+// 1c. Step 5 Crumple & toss (&toss=1): pinch-grab → crumple → throw by hand lands in the bin, task 'dropped' in state, basket counted, run still ends
+if (!ONLY || ONLY === 'toss') { const p = await page(); await p.goto(BASE + '?demo=1&autoplay=1&mr=1&hands=1&clean=1&wake=1&mood=okay&toss=1');
+  const T0 = Date.now(); let say = '', ts = null;
+  while (Date.now() - T0 < (THROTTLE ? 1500000 : 480000)) { const prev = say; say = await sayOf(p).catch(() => ''); if (say !== prev && process.env.VERBOSE) console.log(`  ${((Date.now() - T0) / 1000).toFixed(0)}s ${say}`);
+    if (!ts && /^1\/6/.test(say)) ts = await p.evaluate(() => { const t = window.__mdTest; if (!t) return null; return { beat: document.body.dataset.tossBeat ?? '', log: document.body.dataset.v2log ?? '', dropped: t.s.dropped ?? [], baskets: t.basketsToday(), inLists: (t.s.dropped ?? []).some((id) => [...t.s.stack, ...t.s.timeline, ...t.s.tomorrow, ...t.s.skipped].includes(id)) }; });
+    if (/complete|stopped/.test(say)) break; await p.waitForTimeout(500); }
+  ok(!!ts && ts.beat === 'hand', `toss: card crumpled and thrown into the bin by hand (${JSON.stringify(ts)})`);
+  ok(!!ts && ts.dropped.length === 1 && !ts.inLists && ts.baskets === 1, 'toss: task is dropped in state (out of every list), 1 basket today');
+  ok(/v2 demo complete/.test(say), `toss autoplay reached the end (${say})`); ok(!p.errs.length, `toss: no page errors ${p.errs.join(' | ')}`); await p.close(); }
+// 1d. 🗑 Toss button fallback (hands-only poke on the Focus panel) + no bin without the flag
+if (!ONLY || ONLY === 'tossbtn') { for (const q of ['?demo=1&mr=1&hands=1&wake=0&toss=1', '?demo=1&mr=1&hands=1&wake=0']) { const p = await page(); await p.goto(BASE + q);
+  await p.waitForFunction(() => !!window.__mdTest, null, { timeout: 90000 }).catch(() => {});
+  for (const t0 = Date.now(); Date.now() - t0 < 90000;) { if (await p.evaluate(() => !!window.__mdTest?.inXR?.()).catch(() => false)) break; await p.click('#btn-enter', { timeout: 5000 }).catch(() => {}); await p.waitForTimeout(4000); }
+  await p.waitForFunction(() => window.__mdTest?.mr?.phase === 'done', null, { timeout: 60000 }).catch(() => {}); await p.waitForTimeout(1500);
+  if (!q.includes('toss')) { ok(await p.evaluate(() => !window.__mdTest.toss && ![...window.__mdTest.buttons.values()].some((b) => b.label.mesh.userData.btn?.includes('Toss'))), 'no &toss: no bin, no 🗑 Toss button (live behaviour unchanged)'); ok(!p.errs.length, `no page errors (no toss) ${p.errs.join(' | ')}`); await p.close(); continue; }
+  ok(await p.evaluate(() => window.__mdTest.toss?.bin.visible === true), 'toss: floor bin shown in MR');
+  const id = await p.evaluate(() => { const t = window.__mdTest; window.IWER_DEVICE.primaryInputMode = 'hand'; const id = t.s.stack[t.s.stack.length - 1]; t.startFocus(id); return id; });
+  await p.waitForFunction(() => window.__mdTest.focusPanel.mesh.scale.x > 0.97, null, { timeout: 60000 }).catch(() => {});
+  for (let i = 0; i < 6; i++) { if (await p.evaluate((id) => !!window.__mdTest.s.dropped?.includes(id), id)) break;
+    await p.evaluate(async () => { const t = window.__mdTest, R = window.IWER_DEVICE.hands.right; const btn = [...t.buttons.values()].find((x) => x.label.mesh.visible && x.label.mesh.userData.btn?.includes('Toss')); if (!btn) return;
+      const m = btn.label.mesh; const V = m.position.constructor, Q = m.quaternion.constructor; m.updateMatrixWorld(); const pos = m.getWorldPosition(new V()); const nrm = new V(0, 0, 1).applyQuaternion(m.getWorldQuaternion(new Q())); const sl = (ms) => new Promise((r) => setTimeout(r, ms));
+      R.poseId = 'point'; const t0 = performance.now(); for (;;) { const k = Math.min(1, (performance.now() - t0) / 900); const d = 0.07 - 0.09 * k; R.setPin({ anchor: 'index-tip', target: [pos.x + nrm.x * d, pos.y + nrm.y * d, pos.z + nrm.z * d] }); if (k >= 1) break; await sl(30); }
+      await sl(700); R.setPin({ anchor: 'index-tip', target: [pos.x + nrm.x * 0.2, pos.y - 0.2, pos.z + nrm.z * 0.2] }); await sl(500); });
+    await p.waitForTimeout(2500); }
+  ok(await p.evaluate((id) => { const s = window.__mdTest.s; return !!s.dropped?.includes(id) && !s.stack.includes(id) && !s.timeline.includes(id); }, id), 'toss: 🗑 Toss button (poke) drops the task into the bin');
+  ok(!p.errs.length, `no page errors (toss button) ${p.errs.join(' | ')}`); await p.close(); } }
+
 // 2. hands-only
 for (const [q, want] of ONLY ? [] : [['?demo=1', 'hand'], ['?demo=1&controllers=1', 'controller']]) {
   const p = await page(); await p.goto(BASE + q); await p.waitForTimeout(4000);
   ok(await p.evaluate(() => window.IWER_DEVICE?.primaryInputMode) === want, `input default for ${q} is ${want}`); ok(!p.errs.length, `no page errors on ${q}`); await p.close(); }
-for (const how of ONLY === 'autoplay' ? [] : ONLY ? [ONLY] : ['poke', 'pinch']) {
+for (const how of ['autoplay', 'zones', 'toss', 'tossbtn'].includes(ONLY) ? [] : ONLY ? [ONLY] : ['poke', 'pinch']) {
   const p = await page(); await p.goto(BASE + '?demo=1&mr=1&hands=1&wake=0');
   // enter XR by state, not by fixed sleeps: under --throttle the page can still be loading after 3.5 s, the click is lost and
   // the run stays in the flat view (inXR false), so no hand gesture can ever land. Click until the session is up (wall-clock budget).

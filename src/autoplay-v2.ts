@@ -130,6 +130,35 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       await Promise.all([tween(900, (k) => aim(k, y1, y0, x1, x0)), lean(900, hp)]);
     }
   }
+  // Reel (&toss=1): step 5 crumple & toss: pinch-grab a nice-to-have card, carry it toward the floor bin (it crumples), flick it in
+  if (new URLSearchParams(location.search).get('toss') === '1' && sys.toss) {
+    const ui = Object.getOwnPropertySymbols(dev).map((k) => dev[k]?.devui?.inputLayer).find((x: any) => x?.playerRig);
+    const aimAt = async (ms: number, w: Vector3) => { if (!ui) return; const d = w.clone().sub(head()); const ty = Math.atan2(-d.x, -d.z), tx = Math.atan2(d.y, Math.hypot(d.x, d.z));
+      const fy = ui.playerRig.rotation.y, fx = ui.cameraRig.rotation.x; await tween(ms, (k) => { ui.playerRig.rotation.y = fy + (ty - fy) * k; ui.cameraRig.rotation.x = fx + (tx - fx) * k; ui.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui.cameraRig.getWorldQuaternion(new Quaternion())); }); };
+    const y0 = ui?.playerRig.rotation.y ?? 0, x0 = ui?.cameraRig.rotation.x ?? 0;
+    await until(() => sys.toss.bin.visible, 5000);
+    const id = sys.s.stack.find((x: string) => sys.s.tasks[x].priority !== 1 && sys.items.get(x)?.label.mesh.visible) ?? sys.s.stack.find((x: string) => sys.items.get(x)?.label.mesh.visible);
+    if (id) {
+      const rim = () => sys.toss.rimWorld(new Vector3()); const cw = sys.items.get(id).label.mesh.getWorldPosition(new Vector3());
+      say('🗑 Crumple & toss: grab a card you will not do today'); await aimAt(900, cw.clone().lerp(rim(), 0.35));
+      await move(card(id), 1100); await sleep(250); await pinch(1, 200);
+      const got = await until(() => sys.drag?.id === id, 3000); log(`grab${got ? '+' : '-'}`);
+      if (got) {
+        const r0 = rim(); const over: V3 = [r0.x, r0.y + 0.3, r0.z];
+        say('🗑 Close your hand · it crumples'); await move(over, 1300);
+        await until(() => (document.body.dataset.crumple ?? '').startsWith('ball:'), 4000); await sleep(500);
+        say('🗑 Throw it in the bin'); const r1 = rim(); await move([r1.x, r1.y + 0.1, r1.z], 220); await pinch(0, 60);
+        await until(() => /^(in|miss)/.test(document.body.dataset.toss ?? ''), 4000);
+      } else await pinch(0);
+      const viaHand = (document.body.dataset.toss ?? '').startsWith(`in:${id}`); log(`toss${viaHand ? '+' : '-'}:${document.body.dataset.crumple ?? ''}:${document.body.dataset.toss ?? ''}:${sys.drag?.id ?? ''}`);
+      if (!viaHand && !sys.s.dropped?.includes(id)) { log('tossButton'); sys.tossCard(id); await until(() => (document.body.dataset.toss ?? '').startsWith('in:'), 4000); }
+      document.body.dataset.tossBeat = viaHand ? 'hand' : sys.s.dropped?.includes(id) ? 'button' : 'fail';
+      say('🏀 Basket! Dropped for today'); await aimAt(600, rim()); await sleep(600);
+      if (document.body.dataset.shotWait === '1') { document.body.dataset.shotHold = '1'; while (document.body.dataset.shotHold === '1') await sleep(100); }
+      await sleep(1400); cur = H(-0.05, -0.36, -0.22); pin(R, cur);
+      if (ui) { const fy = ui.playerRig.rotation.y, fx = ui.cameraRig.rotation.x; await tween(800, (k) => { ui.playerRig.rotation.y = fy + (y0 - fy) * k; ui.cameraRig.rotation.x = fx + (x0 - fx) * k; ui.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui.cameraRig.getWorldQuaternion(new Quaternion())); }); }
+    }
+  }
   try {
     say('1/6  passthrough: desk on your table, plan on your wall');
     await move(H(-0.05, -0.36, -0.22), 900); await sleep(4000);

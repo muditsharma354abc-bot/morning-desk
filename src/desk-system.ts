@@ -453,7 +453,10 @@ export class MorningDeskSystem extends createSystem({
       // flat view: the mouse handler decides click (Focus) vs drag/flick on release; a press here would open Focus mid-drag
       if (!this.inXR()) return;
       const it = [...this.items.values()].find((x) => x.entity.index === e.index); if (!it) return;
-      if (this.focus?.phase === 'ask') this.moreTime(); else if (!this.focus) { this.startFocus(it.id); this.tutEvent('detail'); }
+      if (this.focus?.phase === 'ask') this.moreTime(); else if (!this.focus) {
+        // &toss=1: a pinch that turns into a grab must not open Focus (the card is about to be crumpled); wait 350 ms (wall-clock) and 3 frames so a slow frame rate cannot miss the grab
+        if (TOSS) { const id = it.id, t0 = performance.now(), n0 = this.frameN; const chk = () => { if (this.drag?.id === id) return; if (performance.now() - t0 < 350 || this.frameN < n0 + 3) { setTimeout(chk, 50); return; } if (!this.focus) { this.startFocus(id); this.tutEvent('detail'); } }; setTimeout(chk, 50); return; }
+        this.startFocus(it.id); this.tutEvent('detail'); }
     });
     this.queries.planes.subscribe('qualify', (e) => this.tryWall(e));
     this.wake = new Wake({
@@ -1773,7 +1776,9 @@ export class MorningDeskSystem extends createSystem({
   }
   private liftScale(it: Item, k: number): void { const s = it.label.mesh.scale.x; it.label.mesh.scale.setScalar(s + (1.12 - s) * k); }
   // ---------------------------------------------------------------- frame
+  private frameN = 0;
   update(delta: number): void {
+    this.frameN++;
     // v2.1 MR stack-up: while Focus or Wind down is open, the wall boards step aside so no two panels overlap;
     // idle planner header (nothing pending, no message) is hidden in MR
     { const mrOn = this.mrFlow(); const modal = mrOn && (!!this.focus || !!this.wind || !!this.wake?.moodShown()); // mood check: like Wind down, side board + desk cards step aside

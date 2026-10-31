@@ -49,7 +49,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const pinch = async (v: number, ms = 120) => { const from = R.pinchValue ?? 0; await tween(ms, (k) => R.updatePinchValue(from + (v - from) * k)); };
   const posOf = (o: any): V3 => o.getWorldPosition(new Vector3()).toArray() as V3;
   const button = (name: string) => [...sys.buttons.values()].find((b: any) => b.label.mesh.visible && b.label.mesh.userData.btn?.includes(name));
-  const snap = () => JSON.stringify([!!sys.focus, sys.mr.phase, sys.wind?.step ?? -1, sys.s.streak, sys.agentMsg, document.body.dataset.wind ?? '']);
+  const snap = () => JSON.stringify([!!sys.focus, sys.mr.phase, sys.wind?.step ?? -1, sys.s.streak, sys.agentMsg, document.body.dataset.wind ?? '', sys.optId, document.body.dataset.optDone ?? '']);
   const press = async (name: string) => {
     let b = button(name); const tw0 = performance.now(); // retry: at a low frame rate boards/buttons can take a while to reappear
     while (!b && performance.now() - tw0 < 30000) { say(`(waiting for "${name}"…)`); await sleep(500); b = button(name); }

@@ -174,9 +174,9 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 - **Look to target:** the card you face for half a second glows. This is head gaze, not eye tracking.
 - **Depth occlusion:** always requested, with no flag needed. If depth sensing isn't granted, the app logs one line and renders normally. Real occlusion only works on a headset and is unverified on Quest 3S.
 
-![Room Zones in the emulator: a Quick zone claimed, short Pending cards sent to it (in the emulator room the wall sits right behind the timeline, so the zone cards overlap it here)](docs/screenshots/14-room-zones.png)
+![Room Zones close-up in the emulator: the labelled Focus zone patch on the desk with a card landed on it](docs/screenshots/14-room-zones.png)
 
-![Look to target in the emulator: the card you face glows (head gaze, not eye tracking)](docs/screenshots/15-look-to-target.png)
+![Look to target in the emulator: the card you face gets a gold glowing rim while the cards beside it stay plain (head gaze, not eye tracking)](docs/screenshots/15-look-to-target.png)
 - **📍 Re-place** on the desk moves everything to where you're sitting now.
 - **VR fallback:** if the browser can't do immersive-ar, you get a virtual room instead.
 

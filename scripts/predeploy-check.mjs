@@ -43,8 +43,14 @@ for (const [q, want] of ONLY ? [] : [['?demo=1', 'hand'], ['?demo=1&controllers=
   const p = await page(); await p.goto(BASE + q); await p.waitForTimeout(4000);
   ok(await p.evaluate(() => window.IWER_DEVICE?.primaryInputMode) === want, `input default for ${q} is ${want}`); ok(!p.errs.length, `no page errors on ${q}`); await p.close(); }
 for (const how of ONLY === 'autoplay' ? [] : ONLY ? [ONLY] : ['poke', 'pinch']) {
-  const p = await page(); await p.goto(BASE + '?demo=1&mr=1&hands=1&wake=0'); await p.waitForTimeout(3500); await p.click('#btn-enter'); await p.waitForTimeout(7000);
+  const p = await page(); await p.goto(BASE + '?demo=1&mr=1&hands=1&wake=0');
+  // enter XR by state, not by fixed sleeps: under --throttle the page can still be loading after 3.5 s, the click is lost and
+  // the run stays in the flat view (inXR false), so no hand gesture can ever land. Click until the session is up (wall-clock budget).
+  await p.waitForFunction(() => !!window.__mdTest, null, { timeout: 90000 }).catch(() => {});
+  for (const t0 = Date.now(); Date.now() - t0 < 90000;) { if (await p.evaluate(() => !!window.__mdTest?.inXR?.()).catch(() => false)) break; await p.click('#btn-enter', { timeout: 5000 }).catch(() => {}); await p.waitForTimeout(4000); }
+  await p.waitForTimeout(3000);
   const hook = await p.evaluate(() => !!window.__mdTest); if (!hook) { ok(false, `wind-down by ${how}: needs the dev server (test hook)`); await p.close(); continue; }
+  ok(await p.evaluate(() => window.__mdTest.inXR()), `wind-down by ${how}: entered XR`);
   await p.evaluate(() => { window.IWER_DEVICE.primaryInputMode = 'hand'; window.__mdTest.openWindDown(); }); await p.waitForTimeout(1200);
   for (let i = 0; i < 20; i++) {
     const st = await p.evaluate(() => document.body.dataset.wind ?? ''); if (st === 'closed') break;
@@ -55,13 +61,13 @@ for (const how of ONLY === 'autoplay' ? [] : ONLY ? [ONLY] : ['poke', 'pinch']) 
       const m = btn.label.mesh; const V = m.position.constructor, Q = m.quaternion.constructor; m.updateMatrixWorld();
       const pos = m.getWorldPosition(new V()); const nrm = new V(0, 0, 1).applyQuaternion(m.getWorldQuaternion(new Q())); const sl = (ms) => new Promise((r) => setTimeout(r, ms));
       if (how === 'poke') { R.poseId = 'point'; for (let i = 0; i <= 25; i++) { const d = 0.07 - 0.09 * i / 25; R.setPin({ anchor: 'index-tip', target: [pos.x + nrm.x * d, pos.y + nrm.y * d, pos.z + nrm.z * d] }); await sl(30); } R.setPin({ anchor: 'index-tip', target: [pos.x + nrm.x * 0.2, pos.y - 0.2, pos.z + nrm.z * 0.2] }); await sl(500); return; }
-      // pinch: aim the emulated hand's real target ray (IWSDK raySpace) at the button, then pinch
+      // pinch (held 600 ms wall-clock, >= 2 frames at the forced ~4 fps): aim the emulated hand's real target ray (IWSDK raySpace) at the button, then pinch
       const rs = t.world.playerSpaceEntities.raySpaces.right.object3D; const head = t.headCam().getWorldPosition(new V());
       const wr = head.clone().add(new V(0.15, -0.35, -0.15)); let q = new Q().setFromUnitVectors(new V(0, 0, -1), pos.clone().sub(wr).normalize()); R.poseId = 'default';
       for (let i = 0; i < 6; i++) { R.setPin({ anchor: 'wrist', target: wr.toArray(), wristRotation: [q.x, q.y, q.z, q.w] }); await sl(250);
         rs.updateMatrixWorld(true); const o = rs.getWorldPosition(new V()); const cur = new V(0, 0, -1).applyQuaternion(rs.getWorldQuaternion(new Q()));
         q = new Q().setFromUnitVectors(cur, pos.clone().sub(o).normalize()).multiply(q); }
-      await sl(300); for (let i = 0; i <= 8; i++) { R.updatePinchValue(i / 8); await sl(16); } await sl(150); for (let i = 8; i >= 0; i--) { R.updatePinchValue(i / 8); await sl(16); } await sl(500);
+      await sl(300); for (let i = 0; i <= 8; i++) { R.updatePinchValue(i / 8); await sl(16); } await sl(600); for (let i = 8; i >= 0; i--) { R.updatePinchValue(i / 8); await sl(16); } await sl(500);
       R.setPin({ anchor: 'wrist', target: head.clone().add(new V(0.25, -0.5, -0.1)).toArray() }); await sl(300); return want + ' ' + pos.toArray().map((v) => v.toFixed(2)).join(',');
       R.updatePinchValue(1); await sl(200); R.updatePinchValue(0); await sl(500); }, how); if (process.env.VERBOSE) console.log('   ->', r);
     await p.waitForTimeout(400);

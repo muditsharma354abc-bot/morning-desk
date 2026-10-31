@@ -1086,19 +1086,19 @@ export class MorningDeskSystem extends createSystem({
         panel(g, W, H, C.paper); dot(g, 24, H * 0.26, 7, C.prio[t.priority]);
         const lines = this.wrap(g, t.title, W - 56, 18, 2); // the ⋯ pill sits bottom-right, beside the duration
         lines.forEach((ln, i) => text(g, ln, 40, H * (lines.length > 1 ? 0.26 + i * 0.25 : 0.36), 18, C.ink, 600, W - 56));
-        text(g, `${dur(t.minutes)} · ${['', 'must', 'should', 'nice'][t.priority]}`, 40, H * 0.8, 15, C.mute, 500, W - 110);
+        text(g, `${dur(t.minutes)} · ${['', 'must', 'should', 'nice'][t.priority]}`, 40, H * 0.8, 17, C.mute, 500, W - 110);
       } else if (place === 'timeline') {
         // round tile, content centred: title in at most 2 lines (font shrinks to fit, ✓ stays on the first word), then time
         panel(g, W, H, t.done ? '#2A3530' : C.glass, undefined, t.done ? 0.85 : 0.95);
         if (over) dot(g, W / 2, H * 0.1, 6, C.warn); else dot(g, W / 2, H * 0.1, 6, C.prio[t.priority]);
         const words = `${t.done ? '✓\u00A0' : ''}${t.title}`.split(' ');
         let fs = 26, lines: string[] = [];
-        for (; fs >= 17; fs--) { g.font = `700 ${fs}px ${FONT}`; lines = []; for (const w of words) { const last = lines[lines.length - 1]; if (last !== undefined && g.measureText(`${last} ${w}`).width <= W - 16) lines[lines.length - 1] = `${last} ${w}`; else lines.push(w); }
+        for (; fs >= 24; fs--) { g.font = `700 ${fs}px ${FONT}`; lines = []; for (const w of words) { const last = lines[lines.length - 1]; if (last !== undefined && g.measureText(`${last} ${w}`).width <= W - 16) lines[lines.length - 1] = `${last} ${w}`; else lines.push(w); }
           if (lines.length <= 2 && lines.every((l) => g.measureText(l).width <= W - 16)) break; }
         if (lines.length > 2) { lines = [lines[0], lines.slice(1).join(' ')]; } // 2nd line ellipsised by text() when it still does not fit
         const cy = H * 0.44; lines.forEach((ln, k) => text(g, ln, W / 2, cy + (k - (lines.length - 1) / 2) * fs * 1.15, fs, C.ink, 700, W - 12, 'center'));
         const d = t.done ? `${dur(t.actual ?? t.minutes)}` : dur(t.minutes); const full = `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${d}`;
-        let ts = 18; g.font = `600 ${ts}px ${FONT}`; const show = g.measureText(full).width <= W - 16 ? full : d; while (ts > 12 && g.measureText(show).width > W - 12) { ts--; g.font = `600 ${ts}px ${FONT}`; }
+        let ts = 22; g.font = `600 ${ts}px ${FONT}`; const show = g.measureText(full).width <= W - 16 ? full : d; while (ts > 18 && g.measureText(show).width > W - 12) { ts--; g.font = `600 ${ts}px ${FONT}`; }
         text(g, show, W / 2, H * 0.82, ts, C.mute, 600, W, 'center');
       } else {
         panel(g, W, H, C.glass, C.prio[t.priority], 1);
@@ -1496,15 +1496,15 @@ export class MorningDeskSystem extends createSystem({
     const clash = new Set(Object.values(sl).map((x) => x.clash?.id).filter(Boolean));
     this.meetBoard.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sky, 0.95);
-      text(g, '📅 Meetings', 34, 36, 24, C.ink, 700);
-      if (!ms.length) text(g, 'No meetings today', 34, 84, 18, C.mute, 500);
+      text(g, '📅 Meetings', 34, 36, 28, C.ink, 700);
+      if (!ms.length) text(g, 'No meetings today', 34, 84, 24, C.mute, 500);
       ms.forEach((m, i) => {
         const y = 84 + i * 80;
-        text(g, `${fmt(m.start)}–${fmt(m.start + m.minutes)}`, 34, y, 18, C.sageDeep, 700);
-        text(g, m.title, 34, y + 24, 20, C.ink, 600, W - 60);
-        if (clash.has(m.id)) text(g, '⚠ a task runs into this', 34, y + 50, 16, C.warn, 700, W - 60);
+        text(g, `${fmt(m.start)}–${fmt(m.start + m.minutes)}`, 34, y, 24, C.sageDeep, 700);
+        text(g, m.title, 34, y + 28, 24, C.ink, 600, W - 60);
+        if (clash.has(m.id)) text(g, '⚠ a task runs into this', 34, y + 56, 22, C.warn, 700, W - 60);
       });
-      text(g, 'Fixed times', 34, H - 24, 18, C.mute, 600, W - 50);
+      text(g, 'Fixed times', 34, H - 26, 22, C.mute, 600, W - 50);
     });
     const tasks = [...s.timeline, ...s.tomorrow, ...s.stack].filter((id) => s.tasks[id]);
     const done = s.timeline.filter((id) => s.tasks[id].done);
@@ -1527,8 +1527,8 @@ export class MorningDeskSystem extends createSystem({
       l.draw((g, W, H) => {
         g.fillStyle = '#2B3A55'; g.globalAlpha = 0.9; g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, 14); g.fill(); g.globalAlpha = 1;
         text(g, '📅', W / 2, H * 0.3, 26, C.ink, 400, W, 'center');
-        text(g, fmt(m.start), W / 2, H * 0.58, 17, C.ink, 700, W - 6, 'center');
-        text(g, m.title, W / 2, H * 0.8, 15, C.mute, 500, W - 6, 'center');
+        text(g, fmt(m.start), W / 2, H * 0.58, 22, C.ink, 700, W - 6, 'center');
+        text(g, m.title, W / 2, H * 0.8, 20, C.mute, 500, W - 6, 'center');
       });
     });
   }
@@ -1749,7 +1749,7 @@ export class MorningDeskSystem extends createSystem({
       const t = this.s.tasks[id]; const place = this.placeOf(id); const m = it.label.mesh;
       const vis = !!t && !t.done && m.visible && !this.optId && !this.focus && !this.wind && (!this.drag || hold?.id === id) && (place === 'timeline' || place === 'stack') && !this.zoneTarget(id, this.zTmp, this.tmpQ2);
       b.label.mesh.visible = vis; if (!vis) continue;
-      const wall = place === 'timeline'; const pw = wall ? 0.075 : 0.05, ph = wall ? 0.05 : 0.034; b.label.resize(pw, ph);
+      const wall = place === 'timeline'; const pw = wall ? 0.085 : 0.05, ph = wall ? 0.058 : 0.034; b.label.resize(pw, ph);
       let prog = 0; if (hold?.id === id && this.holdOpened !== id) { const moved = m.position.distanceTo(hold.p0); prog = moved < 0.02 ? Math.min(1, (performance.now() - hold.t0) / 800) : 0;
         if (prog >= 1) { this.holdOpened = id; this.openOptions(id); } }
       this.drawDot(id, b, prog);

@@ -1771,6 +1771,7 @@ export class MorningDeskSystem extends createSystem({
       const dp = this.desk.getWorldPosition(new Vector3()); const dq = this.desk.getWorldQuaternion(new Quaternion());
       const w = dp.clone().add(new Vector3(0.42, 0, 0.32).applyQuaternion(dq)); w.y = Math.max(0, dp.y - 0.78);
       t.bin.position.copy(w); t.bin.quaternion.copy(dq); }
+    t.bin.traverse((o) => { o.matrixAutoUpdate = true; }); t.ball.matrixAutoUpdate = true; // the level root freezes child matrices; tag + confetti move
     t.update(delta);
     if (t.tag.mesh.visible) { const h = this.headCam().getWorldPosition(new Vector3()); t.tag.mesh.lookAt(h); }
   }

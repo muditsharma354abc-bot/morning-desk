@@ -148,6 +148,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
         say('🗑 Close your hand · it crumples'); await move(over, 1300);
         await until(() => (document.body.dataset.crumple ?? '').startsWith('ball:'), 4000); await sleep(500);
         say('🗑 Throw it in the bin'); const r1 = rim(); await move([r1.x, r1.y + 0.1, r1.z], 220); await pinch(0, 60);
+        { const off: V3 = [r1.x + 0.2, r1.y + 0.35, r1.z + 0.15]; void move(off, 600); } // hand moves out of the way so the basket reads on camera
         await until(() => /^(in|miss)/.test(document.body.dataset.toss ?? ''), 4000);
       } else await pinch(0);
       const viaHand = (document.body.dataset.toss ?? '').startsWith(`in:${id}`); log(`toss${viaHand ? '+' : '-'}:${document.body.dataset.crumple ?? ''}:${document.body.dataset.toss ?? ''}:${sys.drag?.id ?? ''}`);

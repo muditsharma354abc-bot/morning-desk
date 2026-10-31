@@ -21,7 +21,7 @@ function paperBall(): Mesh {
 }
 
 export class Toss {
-  bin = new Group(); ball = paperBall(); private confetti: Mesh[] = []; tag = new Label(0.2, 0.05);
+  bin = new Group(); ball = paperBall(); private confetti: Mesh[] = []; tag = new Label(0.26, 0.06);
   /** id being crumpled in the hand + progress 0..1 */
   held: { id: string; c: number } | null = null;
   /** ball in flight (seconds since launch) */
@@ -36,7 +36,7 @@ export class Toss {
     this.ball.visible = false; this.ball.scale.setScalar(0.001);
     const cols = ['#FFC94D', '#9CBF9B', '#F3EEDF', '#E58F6A', '#8FB3D9'];
     for (let i = 0; i < 18; i++) { const m = new Mesh(new IcosahedronGeometry(0.008, 0), new MeshBasicMaterial({ color: cols[i % cols.length] })); m.visible = false; this.confetti.push(m); this.bin.add(m); }
-    this.tag.mesh.visible = false; this.tag.mesh.position.set(0, BIN_H + 0.12, 0); this.bin.add(this.tag.mesh);
+    this.tag.mesh.visible = false; this.tag.mesh.position.set(0, BIN_H + 0.24, 0); this.bin.add(this.tag.mesh);
   }
   rimWorld(out: Vector3): Vector3 { return this.bin.getWorldPosition(out).add(new Vector3(0, BIN_H, 0)); }
   /** Launch from p with velocity v. If the throw would land within the assist radius of the rim, the arc is bent into the bin. */
@@ -71,15 +71,15 @@ export class Toss {
     }
     if (this.burstT >= 0) {
       this.burstT += dt; const t = this.burstT;
-      this.confetti.forEach((m, i) => { const a = (i / this.confetti.length) * Math.PI * 2; const r = 0.05 + 0.25 * t; m.visible = t < 1.4;
-        m.position.set(Math.cos(a) * r, BIN_H + 0.02 + 0.9 * t - 1.2 * t * t + (i % 3) * 0.02, Math.sin(a) * r); m.rotation.x = t * 9 + i; });
-      if (t >= 1.4) this.burstT = -1;
+      this.confetti.forEach((m, i) => { const a = (i / this.confetti.length) * Math.PI * 2; const r = 0.05 + 0.18 * t; m.visible = t < 2;
+        m.position.set(Math.cos(a) * r, BIN_H + 0.02 + Math.max(0, 0.9 * t - 0.6 * t * t) + (i % 3) * 0.02, Math.sin(a) * r); m.rotation.x = t * 9 + i; });
+      if (t >= 2) this.burstT = -1;
     }
     if (this.tagT > 0) { this.tagT -= dt; if (this.tagT <= 0) this.tag.mesh.visible = false; }
   }
   private burst(): void { this.burstT = 0; }
   say(msg: string, secs = 2.5): void {
-    this.tag.draw((g, W, H) => { panel(g, W, H, '#2F3A36', '#FFC94D', 1); text(g, msg, W / 2, H / 2, 20, '#fff', 700, W - 12, 'center'); });
+    this.tag.draw((g, W, H) => { panel(g, W, H, '#2F3A36', '#FFC94D', 1); text(g, msg, W / 2, H / 2, 26, '#fff', 700, W - 12, 'center'); });
     this.tag.mesh.visible = true; this.tagT = secs;
   }
   busy(): boolean { return !!this.fly || !!this.held; }

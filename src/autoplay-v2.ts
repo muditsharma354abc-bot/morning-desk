@@ -88,10 +88,11 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     say('The curtain opens with the sunrise'); await look(sys.curtain.root); sys.curtain.k = 0; sys.setCurtain(1, 0.9); await sleep(HOLD); log(`autoopen:${document.body.dataset.curtain}`);
   };
   const pullCurtain = async (toK: number) => {
-    const c = sys.curtain, h = c.handle; const lp = (k: number): V3 => c.root.localToWorld(new Vector3(c.edgeX(k), 0, 0.04)).toArray() as V3;
-    await move(posOf(h), 900); await pinch(1, 200); await sleep(250);
+    const c = sys.curtain, h = c.handle; const lp = (k: number): V3 => c.root.localToWorld(new Vector3(c.edgeX(k), -0.52, 0.04)).toArray() as V3;
+    const front = c.root.localToWorld(new Vector3(c.edgeX(), -0.52, 0.25)).toArray() as V3; await move(front, 700); // approach from the front: never through the timeline's ⋯ pills
+    await move(posOf(h), 600); await pinch(1, 200); await sleep(250);
     await tween(2200, (k) => { const p = lp(c.k + 0 * k); void p; pin(R, lerp3(posOf(h) as V3, lp(toK), Math.min(1, k * 1.2))); }); await sleep(300);
-    await pinch(0, 200); await sleep(300); cur = posOf(h); log(`pull:${c.state()}`);
+    await pinch(0, 200); await sleep(300); cur = posOf(h); log(`pull:${c.state()}`); if (sys.optId) { sys.closeOptions?.(); log('pull:opt!'); }
   };
   const beatCurtain = async () => {
     await look(sys.curtain.root);
@@ -102,7 +103,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   };
   const beatRenew = async () => {
     await look(sys.curtain.root); say('Renew: the curtain closes slowly'); await sleep(HOLD + 500); log(`autoclose:${document.body.dataset.curtain}`);
-    await lookHome(); say('Renew: a paper lantern on the desk, the room cool and dim'); await sleep(HOLD);
+    await move(H(0.4, -0.9, 0.1), 600); pin(L, H(-0.4, -0.9, 0.1)); await look(sys.lamp); say('Renew: a paper lantern on the desk, the room cool and dim'); await sleep(HOLD); await lookHome();
   };
   if (new URLSearchParams(location.search).get('tour') === 'theme') {
     const tt0 = performance.now(); document.body.dataset.tour = 'run';

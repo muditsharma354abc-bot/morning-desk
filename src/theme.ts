@@ -29,20 +29,21 @@ const ease = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x * 
 
 /** Opening: an organic curved light line draws down the wall, then settles into the timeline track. */
 export class LightLine {
-  root = new Group(); private mesh: Mesh; private count: number; t = -1; static readonly LEN = 4.2;
+  root = new Group(); private mesh: Mesh; private count: number; private settle: number; t = -1; static readonly LEN = 4.2;
   constructor(trackW: number, trackY: number) {
     const x0 = -trackW / 2, x1 = trackW / 2;
     const pts = [[0.1, 0.95], [-0.08, 0.78], [0.12, 0.6], [-0.05, 0.42], [0.05, 0.25], [x0 * 0.4, trackY + 0.04], [x0, trackY], [x0 * 0.3, trackY], [x1 * 0.4, trackY], [x1, trackY]]
       .map(([x, y]) => new Vector3(x, y, 0.006));
     const geo = new TubeGeometry(new CatmullRomCurve3(pts, false, 'catmullrom', 0.5), 160, 0.0045, 6, false);
-    this.count = geo.index!.count; geo.setDrawRange(0, 0);
+    this.count = geo.index!.count; geo.setDrawRange(0, 0); this.settle = Math.floor(this.count * 0.56 / 3) * 3; // index where the curve meets the track
     this.mesh = new Mesh(geo, basic(THEME.warm, THEME.emissive.line, { transparent: true, opacity: 0.95 })); this.mesh.renderOrder = 6;
     this.root.add(this.mesh); this.root.visible = false;
   }
   start(): void { this.t = 0; this.root.visible = true; document.body.dataset.line = 'draw'; }
   update(dt: number): void {
     if (this.t < 0) return; this.t += dt; const t = this.t;
-    this.mesh.geometry.setDrawRange(0, Math.floor(this.count * ease(t / 2.6) / 3) * 3);
+    const end = Math.floor(this.count * ease(t / 2.4) / 3) * 3, start = Math.floor(this.settle * ease((t - 2.5) / 1.4) / 3) * 3; // draws down, then the wall part retracts into the track
+    this.mesh.geometry.setDrawRange(start, end - start);
     (this.mesh.material as MeshBasicMaterial).opacity = 0.95 - 0.6 * ease((t - 2.8) / 1.2); // settles into the timeline: stays as a faint track line
     if (t >= LightLine.LEN && document.body.dataset.line !== 'settled') document.body.dataset.line = 'settled';
   }
@@ -57,7 +58,7 @@ export class Curtain {
     const mat = basic(THEME.fabric, 1, { side: DoubleSide });
     for (const s of [-1, 1]) {
       const g = new PlaneGeometry(w / 2, h, 28, 1); const p = g.attributes.position;
-      for (let i = 0; i < p.count; i++) { const x = p.getX(i); p.setZ(i, 0.025 * Math.sin((x / (w / 2)) * Math.PI * 14)); }
+      for (let i = 0; i < p.count; i++) { const x = p.getX(i); p.setZ(i, 0.011 * Math.sin((x / (w / 2)) * Math.PI * 14)); }
       // shade the pleats (vertex colours, no lights): folds facing away read darker
       const col: number[] = []; for (let i = 0; i < p.count; i++) { const v = 0.72 + 0.28 * Math.cos((p.getX(i) / (w / 2)) * Math.PI * 14); col.push(v, v, v); }
       g.setAttribute('color', new (p.constructor as any)(new Float32Array(col), 3)); g.translate(s * w / 4, 0, 0);

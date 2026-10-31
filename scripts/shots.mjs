@@ -29,6 +29,8 @@ while (Date.now() - T0 < 1500000) {
   if (/^3\/6/.test(s.say ?? '')) { await p.waitForTimeout(3000); await shot('replace'); }
   if (/timer running/.test(s.say ?? '') && s.hold && !done.has('focus-close')) { await near('focus-close', 'focus', 760, 440); await shot('focus'); await p.evaluate(() => { delete document.body.dataset.shotHold; }); }
   if (/Keep$/.test(s.say ?? '')) await shot('keep');
+  if (await p.evaluate(() => !!document.body.dataset.agentNear).catch(() => false)) await shot('agent-near');
+  if (await p.evaluate(() => !!document.body.dataset.opts).catch(() => false)) await shot('options');
   if (s.wind === '0') await shot('wind0');
   if (/^6\/6/.test(s.say ?? '')) await shot('wind-close');
   if (/^5\/6/.test(s.say ?? '')) await shot('wind');

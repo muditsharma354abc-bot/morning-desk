@@ -1080,18 +1080,18 @@ export class MorningDeskSystem extends createSystem({
     it.label.draw((g, W, H) => {
       if (place === 'stack') {
         panel(g, W, H, C.paper); dot(g, 24, H * 0.26, 7, C.prio[t.priority]);
-        const lines = this.wrap(g, t.title, W - 104, 18, 2); // clear of the ⋯ pill (top-right)
-        lines.forEach((ln, i) => text(g, ln, 40, H * (lines.length > 1 ? 0.26 + i * 0.25 : 0.36), 18, C.ink, 600, W - 104));
-        text(g, `${dur(t.minutes)} · ${['', 'must', 'should', 'nice'][t.priority]}`, 40, H * 0.8, 15, C.mute, 500, W - 50);
+        const lines = this.wrap(g, t.title, W - 56, 18, 2); // the ⋯ pill sits bottom-right, beside the duration
+        lines.forEach((ln, i) => text(g, ln, 40, H * (lines.length > 1 ? 0.26 + i * 0.25 : 0.36), 18, C.ink, 600, W - 56));
+        text(g, `${dur(t.minutes)} · ${['', 'must', 'should', 'nice'][t.priority]}`, 40, H * 0.8, 15, C.mute, 500, W - 110);
       } else if (place === 'timeline') {
         // round tile, content centred: title in at most 2 lines (font shrinks to fit, ✓ stays on the first word), then time
         panel(g, W, H, t.done ? '#2A3530' : C.glass, undefined, t.done ? 0.85 : 0.95);
         if (over) dot(g, W / 2, H * 0.1, 6, C.warn); else dot(g, W / 2, H * 0.1, 6, C.prio[t.priority]);
         const words = `${t.done ? '✓\u00A0' : ''}${t.title}`.split(' ');
         let fs = 26, lines: string[] = [];
-        for (; fs >= 13; fs--) { g.font = `700 ${fs}px ${FONT}`; lines = []; for (const w of words) { const last = lines[lines.length - 1]; if (last !== undefined && g.measureText(`${last} ${w}`).width <= W - 16) lines[lines.length - 1] = `${last} ${w}`; else lines.push(w); }
+        for (; fs >= 17; fs--) { g.font = `700 ${fs}px ${FONT}`; lines = []; for (const w of words) { const last = lines[lines.length - 1]; if (last !== undefined && g.measureText(`${last} ${w}`).width <= W - 16) lines[lines.length - 1] = `${last} ${w}`; else lines.push(w); }
           if (lines.length <= 2 && lines.every((l) => g.measureText(l).width <= W - 16)) break; }
-        if (lines.length > 2) { lines = [lines[0], lines.slice(1).join(' ')]; }
+        if (lines.length > 2) { lines = [lines[0], lines.slice(1).join(' ')]; } // 2nd line ellipsised by text() when it still does not fit
         const cy = H * 0.44; lines.forEach((ln, k) => text(g, ln, W / 2, cy + (k - (lines.length - 1) / 2) * fs * 1.15, fs, C.ink, 700, W - 12, 'center'));
         const d = t.done ? `${dur(t.actual ?? t.minutes)}` : dur(t.minutes); const full = `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${d}`;
         let ts = 18; g.font = `600 ${ts}px ${FONT}`; const show = g.measureText(full).width <= W - 16 ? full : d; while (ts > 12 && g.measureText(show).width > W - 12) { ts--; g.font = `600 ${ts}px ${FONT}`; }
@@ -1691,7 +1691,7 @@ export class MorningDeskSystem extends createSystem({
     (this.optPanel.mesh.material as MeshBasicMaterial).depthTest = false; this.optPanel.mesh.renderOrder = 30;
     this.optE = this.world.createTransformEntity(this.optPanel.mesh);
     const opts: [string, () => void][] = [['⏭ Skip', () => this.optDo('skip')], ['+15 min', () => this.optDo('more')], ['→ Tomorrow', () => this.optDo('tomorrow')], ['📅 Plan it', () => this.optDo('plan')], ['✕ Close', () => this.closeOptions()]];
-    opts.forEach(([t, fn], i) => { const b = this.button(t, 0.17, fn, this.optE, 0.044); b.label.mesh.position.set(0, -0.06 - i * 0.056, 0.004); (b.label.mesh.material as MeshBasicMaterial).depthTest = false; b.label.mesh.renderOrder = 31; this.optBtns.push(b); }); // one column
+    opts.forEach(([t, fn], i) => { const b = this.button(t, 0.17, fn, this.optE, 0.044); b.label.mesh.position.set(0, -0.06 - i * 0.056, 0.004); (b.label.mesh.material as MeshBasicMaterial).depthTest = false; b.label.mesh.renderOrder = 31; b.label.mesh.visible = false; this.optBtns.push(b); }); // one column
     this.holdHint = new Label(0.2, 0.034); this.holdHint.mesh.visible = false; this.world.scene.add(this.holdHint.mesh);
     this.holdHint.draw((g, W, H) => { panel(g, W, H, C.glassHi); text(g, 'Tip: hold a card (or tap ⋯) for options', W / 2, H / 2, 17, C.ink, 600, W - 16, 'center'); });
   }
@@ -1700,10 +1700,10 @@ export class MorningDeskSystem extends createSystem({
     this.optId = id; document.body.dataset.opts = id; sfx.pick();
     this.optPanel.mesh.visible = true;
     this.optPanel.draw((g, W, H) => { panel(g, W, H, C.paper); text(g, t.title, W / 2, H / 2, 20, C.ink, 700, W - 24, 'center'); });
-    this.optBtns[3].label.mesh.visible = this.placeOf(id) !== 'timeline'; // Plan it: pinch-drag alternative for Pending cards
+    this.optBtns.forEach((b, i) => { b.label.mesh.visible = i !== 3 || this.placeOf(id) !== 'timeline'; }); // Plan it: pinch-drag alternative for Pending cards
     this.placeInView(this.optPanel.mesh, VIEW_D, VIEW_DROP + 0.12); // the column centres ~12° below the eye line
   }
-  closeOptions(): void { this.optId = ''; this.optPanel.mesh.visible = false; delete document.body.dataset.opts; }
+  closeOptions(): void { this.optId = ''; this.optPanel.mesh.visible = false; for (const b of this.optBtns) b.label.mesh.visible = false; delete document.body.dataset.opts; }
   private optDo(kind: 'skip' | 'more' | 'tomorrow' | 'plan'): void {
     const id = this.optId; const s = this.s; const t = s.tasks[id]; this.closeOptions(); if (!t) return;
     const strip = (a: string[]) => a.filter((x) => x !== id);
@@ -1735,7 +1735,7 @@ export class MorningDeskSystem extends createSystem({
       this.drawDot(id, b, prog);
       // timeline: centred under the tile · Pending card: top-right corner, in front of the card
       const lw = it.label.w, lh = it.label.h;
-      const local = wall ? this.tmp.set(0, -lh / 2 - ph / 2 - 0.008, 0.004) : this.tmp.set(lw / 2 - pw / 2 - 0.006, lh / 2 - ph / 2 - 0.006, 0.006);
+      const local = wall ? this.tmp.set(0, -lh / 2 - ph / 2 - 0.008, 0.004) : this.tmp.set(lw / 2 - pw / 2 - 0.006, -lh / 2 + ph / 2 + 0.005, 0.006);
       m.updateMatrixWorld(); b.label.mesh.position.copy(m.localToWorld(local.clone())); b.label.mesh.quaternion.copy(m.getWorldQuaternion(this.tmpQ2));
       if (!b.label.mesh.userData.pressBase) b.label.mesh.scale.setScalar(m.scale.x);
     }

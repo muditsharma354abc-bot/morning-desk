@@ -58,6 +58,8 @@ const SWIPE_OK = true;
 /** Comfort: poke panels ~44 cm away, centred ~12° below the eye line; near panels drawn at 0.75x so they stay inside the central view. */
 const VIEW_D = 0.44, VIEW_DROP = -0.44 * Math.tan((12 * Math.PI) / 180), NEAR_S = 0.75;
 const ROW_X = (i: number) => -0.29 + i * 0.145; // desk button row: one row of pills
+/** Cut: a 44 cm arc row sits in the reach path to the wall timeline (autoplay's hand poked Wind down on its way to a card). The row stays on the desk (~75 cm). */
+const ARC_ROW = false;
 const SHOW_TIPS = false;
 const SHOW_RESET = new URLSearchParams(location.search).get('reset') === '1'; // Demo reset only behind &reset=1 (hidden in the default / recording view)
 const TRACK_W = 0.96, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
@@ -893,7 +895,7 @@ export class MorningDeskSystem extends createSystem({
         const t = s.tasks[w.list[w.step - 1]];
         text(g, t.title, 28, 78, 26, C.ink, 700, W - 56);
         text(g, `${dur(t.minutes)} · ${['', 'must do', 'should do', 'nice to have'][t.priority]}`, 28, 112, 17, C.sageDeep, 600, W - 56);
-        text(g, `Next keeps it for tomorrow · 🗑 Drop removes it${SWIPE_OK ? ' · thumb swipe → Next' : ''}`, 28, 146, 16, C.mute, 500, W - 56);
+        text(g, `Next keeps it · Drop removes it${SWIPE_OK ? ' · or thumb-swipe' : ''}`, 28, 146, 16, C.mute, 500, W - 56);
       } else {
         const titles = [...w.kept, ...this.parked().filter((x) => !w.kept.includes(x))].map((id) => s.tasks[id]?.title).filter(Boolean);
         text(g, titles.length ? 'Tomorrow starts with:' : 'Tomorrow starts fresh.', 28, 70, 18, C.ink, 700, W - 56);
@@ -1689,7 +1691,7 @@ export class MorningDeskSystem extends createSystem({
   /** Comfort: the desk poke row arcs around the user at ~44 cm (35° below eye level), laid out once per desk placement. */
   private rowKey = '';
   private rowStep(): void {
-    if (!this.inXR() || !this.placed) return;
+    if (!ARC_ROW || !this.inXR() || !this.placed) return;
     const dp = this.desk.getWorldPosition(new Vector3()); const key = `${this.mr.phase}|${dp.toArray().map((v) => v.toFixed(2)).join(',')}`; if (key === this.rowKey) return; this.rowKey = key;
     const head = this.headCam().getWorldPosition(new Vector3()); const hl = this.desk.worldToLocal(head.clone());
     const all = [...this.deskRow, ...(this.replaceBtn ? [this.replaceBtn.label.mesh] : []), ...(this.zoneBtn ? [this.zoneBtn.label.mesh] : [])];

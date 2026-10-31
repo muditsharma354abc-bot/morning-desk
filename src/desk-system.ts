@@ -115,8 +115,8 @@ export class MorningDeskSystem extends createSystem({
   private tutStep = -1;
   private placed = false; private wasXR = false; private windDimmed = false;
   // v11 theme set pieces
-  line!: LightLine; curtain = new Curtain(); private curtainE?: Entity; private revive = reviveRoom(); private lamp = lantern(); private winPane = windowPane(1.2, 1.15);
-  windowFinding = 'not checked'; private wasWind = false; private curtainAt = NaN;
+  line!: LightLine; curtain = new Curtain(); private curtainE?: Entity; private revive = reviveRoom(); lamp = lantern(); private winPane = windowPane(1.2, 1.15);
+  windowFinding = 'not checked'; private wasWind = false; private curtainAt = NaN; private curtainTry = 0;
   /** 🪟 pill (pinch/poke fallback for the hand-pull): open → half → closed → open. */
   cycleCurtain(): void { const c = this.curtain; c.rate = 2.2; c.target = c.state() === 'open' ? 0.5 : c.state() === 'half' ? 0 : 1; }
   setCurtain(k: number, rate = 2.2): void { this.curtain.rate = rate; this.curtain.target = k; }
@@ -131,7 +131,7 @@ export class MorningDeskSystem extends createSystem({
       const p = ob.getWorldPosition(new Vector3()); const q = ob.getWorldQuaternion(new Quaternion());
       const n = new Vector3(0, 1, 0).applyQuaternion(q); const head = new Vector3().setFromMatrixPosition(this.headCam().matrixWorld);
       if (n.dot(head.clone().sub(p)) < 0) n.negate();
-      c.position.copy(p).addScaledVector(n, 0.02); c.rotation.set(0, Math.atan2(n.x, n.z), 0); found = true; break;
+      c.position.copy(p).addScaledVector(n, 0.012); c.rotation.set(0, Math.atan2(n.x, n.z), 0); found = true; break; // behind the wall boards (+0.03): the curtain never covers the plan
     }
     if (!found) { const d = this.desk; c.position.copy(d.localToWorld(new Vector3(0.95, 0.75, -0.75))); c.rotation.set(0, d.rotation.y - 0.55, 0); }
     this.curtain.anchored = found ? 'window' : 'fallback'; this.windowFinding = found ? 'window plane label found; curtain anchored to it' : 'no window label; virtual curtain behind the desk';
@@ -141,10 +141,11 @@ export class MorningDeskSystem extends createSystem({
   private themeStep(dt: number): void {
     if (!this.line) return; this.line.update(dt);
     if (this.placed && this.inXR() && this.mr.phase === 'done' && this.curtainAt !== this.desk.position.x + this.desk.position.z) { this.curtainAt = this.desk.position.x + this.desk.position.z; this.placeCurtain(); }
+    else if (this.placed && this.inXR() && this.curtain.anchored === 'fallback' && performance.now() - this.curtainTry > 1000) { this.curtainTry = performance.now(); this.placeCurtain(); } // plane labels can arrive after placement
     const w = !!this.wind; if (w && !this.wasWind) this.setCurtain(0, 0.5); this.wasWind = w; // Renew: curtain closes slowly
     const h = this.curtain.handle; const grabbed = this.curtainE?.hasComponent(Grabbed);
     this.curtain.update(dt, grabbed ? this.curtain.root.worldToLocal(h.getWorldPosition(new Vector3())).x : undefined);
-    if (!grabbed) { h.position.copy(this.curtain.root.localToWorld(new Vector3(this.curtain.edgeX(), 0, 0.04))); h.quaternion.copy(this.curtain.root.quaternion); }
+    if (!grabbed) { h.position.copy(this.curtain.root.localToWorld(new Vector3(this.curtain.edgeX(), -0.52, 0.04))); h.quaternion.copy(this.curtain.root.quaternion); }
     const vis = this.placed && this.inXR(); this.curtain.root.visible = h.visible = vis;
     this.revive.visible = vis && !w && this.curtain.state() === 'closed'; this.winPane.visible = this.revive.visible;
     this.lamp.visible = vis && w;
@@ -372,7 +373,7 @@ export class MorningDeskSystem extends createSystem({
     // ?tutorial=1: fresh start: wipe saved desk/card/wall state, then the sample desk loads (never in demo)
     { const tq = new URLSearchParams(location.search); if (tq.has('tutorial') && !tq.has('demo')) { const h = load().history; const ts = tutorialState(); if (h) ts.history = h; save(ts); } }
     this.s = load();
-    if (import.meta.env.DEV) (window as unknown as { __mdTest: unknown }).__mdTest = this; // dev-server test hook only
+    if (import.meta.env.DEV) { (window as unknown as { __mdTest: unknown }).__mdTest = this; (window as unknown as { __XRP: unknown }).__XRP = XRPlane; } // dev-server test hook only
     const scene = this.world.scene;
     scene.add(new HemisphereLight(0xfff6e8, 0x6b7a72, 1.6));
     { // VR-room fallback (devices without immersive-ar): floor + a desk-height table + a back wall, built around the desk
@@ -474,7 +475,7 @@ export class MorningDeskSystem extends createSystem({
     this.line = new LightLine(TRACK_W, -TRACK_H / 2 - 0.015); this.wall.add(this.line.root);
     scene.add(this.curtain.root, this.revive); this.curtain.root.add(this.winPane); this.revive.visible = this.winPane.visible = false; this.revive.renderOrder = -3;
     this.curtainE = this.world.createTransformEntity(this.curtain.handle); this.curtainE.addComponent(RayInteractable);
-    this.lamp.position.set(0.42, 0.0, -0.16); this.desk.add(this.lamp); this.lamp.visible = false;
+    this.lamp.position.set(-0.24, 0.0, -0.08); this.desk.add(this.lamp); this.lamp.visible = false;
     this.summary = new Label(0.54, 0.44); this.summary.mesh.visible = false;
     // draw the summary over desk labels behind it (the streak tag must not show through)
     (this.summary.mesh.material as MeshBasicMaterial).depthTest = false; this.summary.mesh.renderOrder = 10;

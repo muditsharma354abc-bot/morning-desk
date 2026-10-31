@@ -1686,6 +1686,19 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- ⋯ task options (Skip / +15 / Tomorrow): visible pill per task, or long pinch-hold
+  /** Comfort: the desk poke row arcs around the user at ~44 cm (35° below eye level), laid out once per desk placement. */
+  private rowKey = '';
+  private rowStep(): void {
+    if (!this.inXR() || !this.placed) return;
+    const dp = this.desk.getWorldPosition(new Vector3()); const key = `${this.mr.phase}|${dp.toArray().map((v) => v.toFixed(2)).join(',')}`; if (key === this.rowKey) return; this.rowKey = key;
+    const head = this.headCam().getWorldPosition(new Vector3()); const hl = this.desk.worldToLocal(head.clone());
+    const all = [...this.deskRow, ...(this.replaceBtn ? [this.replaceBtn.label.mesh] : []), ...(this.zoneBtn ? [this.zoneBtn.label.mesh] : [])];
+    const R = 0.44, el = (35 * Math.PI) / 180, n = all.length;
+    all.forEach((m, i) => { const yaw = (i - (n - 1) / 2) * (0.135 / R); // arc length ≈ pill width + ~1.7 cm gap
+      const p = new Vector3(Math.sin(yaw) * Math.cos(el) * R, -Math.sin(el) * R, -Math.cos(yaw) * Math.cos(el) * R).add(hl);
+      m.position.copy(p); m.lookAt(this.desk.localToWorld(hl.clone())); });
+    document.body.dataset.row = `${R}`;
+  }
   private landG = { id: '', until: 0 };
   /** A card that just landed on a zone is the selected one: gold rim for `ms`. */
   landGlow(id: string, ms: number): void { this.landG = { id, until: performance.now() + ms }; }
@@ -1892,7 +1905,7 @@ export class MorningDeskSystem extends createSystem({
         if (this.agentOn() && this.morningRun && !this.pending && !this.wind && !this.focus && !this.wake.busy() && !this.wake.moodShown() && this.s.windAutoDay !== today() && this.evening()) {
           this.s.windAutoDay = today(); save(this.s); this.openWindDown(); document.body.dataset.windAuto = '1'; } } }
     if (this.zoneBtn) this.zoneBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.wake?.moodShown() && !this.focus && !this.wind;
-    this.pressStep(); this.dotsStep(); if (this.holdHintT > 0) this.holdHintT -= delta; this.claimStep(delta); this.gazeStep(delta); this.zonePulseStep(); if (this.zoneFly && performance.now() - this.zoneFly.t0 > 1300) this.zoneFly = null;
+    this.pressStep(); this.rowStep(); this.dotsStep(); if (this.holdHintT > 0) this.holdHintT -= delta; this.claimStep(delta); this.gazeStep(delta); this.zonePulseStep(); if (this.zoneFly && performance.now() - this.zoneFly.t0 > 1300) this.zoneFly = null;
     if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.mr.vr && !this.wake?.moodShown();
     // agent acts on its own after a short beat
     if (this.agentTimer > 0 && !this.wake?.busy() && !this.wake?.moodShown()) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }

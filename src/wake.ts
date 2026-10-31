@@ -145,9 +145,10 @@ export class Wake {
     head.mesh.position.set(0, 0.115, 0); this.orbs.add(head.mesh); (head.mesh.material as MeshBasicMaterial).depthTest = false; head.mesh.renderOrder = 20; // left of the orbs: nothing reaches up over a real monitor
     defs.forEach(([m, name, sub, col], i) => {
       const label = new Label(0.115, 0.115);
-      const draw = (sel: boolean) => label.draw((g, W, H) => { panel(g, W, H, sel ? C.sel : C.glass); text(g, name, W / 2, H * 0.74, 22, sel ? '#24262B' : C.ink, 700, W, 'center'); text(g, sub, W / 2, H * 0.89, 13, sel ? '#3A3C42' : C.mute, 500, W, 'center'); });
+      const draw = (sel: boolean) => label.draw((g, W, H) => { panel(g, W, H, sel ? C.sel : C.glass); { const r = W * 0.2, cx = W / 2, cy = H * 0.34; const gr = g.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r); gr.addColorStop(0, '#E6E9EE'); gr.addColorStop(0.35, col); gr.addColorStop(1, col); g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill(); } // the orb, drawn in the tile (always above the name, never overlapping it)
+        text(g, name, W / 2, H * 0.74, 22, sel ? '#24262B' : C.ink, 700, W, 'center'); text(g, sub, W / 2, H * 0.89, 13, sel ? '#3A3C42' : C.mute, 500, W, 'center'); });
       draw(false); label.mesh.userData.drawSel = draw;
-      const orb = new Mesh(new IcosahedronGeometry(0.024, 2), new MeshBasicMaterial({ color: col, transparent: true }));
+      const orb = new Mesh(new IcosahedronGeometry(0.024, 2), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0, depthWrite: false })); // invisible hit proxy (the orb is drawn on the tile)
       orb.position.set(0, 0.022, 0.02); // orb sits fully above its name (never over the label text) label.mesh.add(orb); // child of the pressable, so a ray/poke on the orb counts
       this.h.pressable(label.mesh, this.orbs, () => this.pick(m)); label.mesh.position.set((i - 1) * 0.13, 0, 0);
       for (const x of [label.mesh, orb]) { (x.material as MeshBasicMaterial).depthTest = false; x.renderOrder = 20 + (x === orb ? 1 : 0); } // UI stays on top of room meshes

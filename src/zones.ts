@@ -20,7 +20,7 @@ export function saveZones(demo: boolean, z: Zone[]): void { try { localStorage.s
 export const PATCH_W = 0.36, PATCH_H = 0.24;
 /** Claimed zone: a soft outlined patch with its name (Focus / Quick); the claim cursor stays a ring + "Pinch to claim" tag. */
 export function zoneMarker(kind: ZoneKind | 'cursor'): { ring: Mesh; tag: Label } {
-  const col = kind === 'cursor' ? '#FFFFFF' : kind === 'focus' ? C.accent : '#8FD1A5';
+  const col = kind === 'cursor' ? '#E6E9EE' : kind === 'focus' ? '#B9A3E3' : '#8FD1A5';
   const tag = new Label(0.13, 0.034);
   if (kind === 'cursor') {
     const ring = new Mesh(new RingGeometry(0.075, 0.09, 40), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false }));
@@ -32,11 +32,11 @@ export function zoneMarker(kind: ZoneKind | 'cursor'): { ring: Mesh; tag: Label 
     const r = 36, lw = 14; g.beginPath(); g.roundRect(lw, lw, W - 2 * lw, H - 2 * lw, r);
     g.fillStyle = kind === 'focus' ? 'rgba(255,170,40,0.75)' : 'rgba(143,209,165,0.62)'; g.fill(); // strong fill: reads from the seat
     g.shadowColor = col; g.shadowBlur = 18; g.lineWidth = lw; g.strokeStyle = col; g.stroke(); g.shadowBlur = 0;
-    g.setLineDash([22, 14]); g.lineWidth = 4; g.strokeStyle = '#FFFFFF'; g.beginPath(); g.roundRect(lw * 2.6, lw * 2.6, W - 5.2 * lw, H - 5.2 * lw, r * 0.6); g.stroke(); g.setLineDash([]);
+    g.setLineDash([22, 14]); g.lineWidth = 4; g.strokeStyle = '#E6E9EE'; g.beginPath(); g.roundRect(lw * 2.6, lw * 2.6, W - 5.2 * lw, H - 5.2 * lw, r * 0.6); g.stroke(); g.setLineDash([]);
   });
   // upright name tag at the back edge of the patch, turned to face the seated user (big, readable at default distance)
   const big = new Label(0.2, 0.05); big.mesh.renderOrder = 6; // depth-tested: a lifted card in front of it stays in front
-  big.draw((g, W, H) => { panel(g, W, H, C.glassHi, col, 1); text(g, kind === 'focus' ? '🎯 Focus zone' : '⚡ Quick zone', W / 2, H / 2, Math.round(H * 0.4), '#FFFFFF', 800, W - 8, 'center'); });
+  big.draw((g, W, H) => { panel(g, W, H, C.glassHi, col, 1); text(g, kind === 'focus' ? '🎯 Focus zone' : '⚡ Quick zone', W / 2, H / 2, Math.round(H * 0.4), '#E6E9EE', 800, W - 8, 'center'); });
   return { ring: patch.mesh, tag: big };
 }
 /** Card slot i on a zone (zone-local, 2 × 2): on a flat patch cards lie on it, leaning back toward the user; on a wall they hang on it. */

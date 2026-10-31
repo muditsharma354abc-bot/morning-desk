@@ -39,20 +39,24 @@ export class Label {
 }
 
 /** The one panel family: rounded dark glass, soft drop shadow, hairline rim light, optional accent stripe. */
-export function panel(g: CanvasRenderingContext2D, W: number, H: number, fill: string = C.glass, accent?: string, alpha = 0.98): void {
-  const m = Math.min(8, H * 0.08), r = Math.min(28, (H - 2 * m) / 3.2), x = m, y = m * 0.6, w = W - 2 * m, h = H - 2 * m;
+export function panel(g: CanvasRenderingContext2D, W: number, H: number, fill: string = C.glass, _accent?: string, alpha = 0.98): void {
+  // design pass: rounded tile, soft shadow, no rim / outline / edge stripe (accent colours only mark the selected state elsewhere)
+  const m = Math.min(8, H * 0.08), x = m, y = m * 0.6, w = W - 2 * m, h = H - 2 * m, r = Math.min(h / 2, Math.max(18, Math.min(44, h * 0.22)));
   const a = fill === C.glass ? Math.min(alpha, 1) * GLASS_ALPHA / 0.98 : alpha;
   g.save();
-  g.shadowColor = 'rgba(0,0,0,0.35)'; g.shadowBlur = m * 1.6; g.shadowOffsetY = m * 0.45;
+  g.shadowColor = 'rgba(12,14,18,0.35)'; g.shadowBlur = m * 1.6; g.shadowOffsetY = m * 0.45;
   g.globalAlpha = Math.min(1, a); g.fillStyle = fill;
   g.beginPath(); g.roundRect(x, y, w, h, r); g.fill();
   g.restore();
-  // rim light: brighter along the top edge, like glass catching light
-  const grad = g.createLinearGradient(0, y, 0, y + h);
-  grad.addColorStop(0, 'rgba(255,255,255,0.28)'); grad.addColorStop(0.5, 'rgba(255,255,255,0.08)'); grad.addColorStop(1, 'rgba(255,255,255,0.04)');
-  g.strokeStyle = HC.on ? '#FFFFFF' : grad; g.lineWidth = HC.on ? 4 : 2; g.beginPath(); g.roundRect(x + 1, y + 1, w - 2, h - 2, r); g.stroke();
-  if (accent) { g.fillStyle = accent; g.beginPath(); g.roundRect(x, y, 10, h, [r, 0, 0, r]); g.fill(); }
+  void HC;
 }
+/** A pill (fully rounded): every button. `sel` = selected state (the only place gold is used). */
+export function pill(g: CanvasRenderingContext2D, W: number, H: number, sel = false): void {
+  const m = Math.min(6, H * 0.08); g.save(); g.shadowColor = 'rgba(12,14,18,0.3)'; g.shadowBlur = m * 1.4; g.shadowOffsetY = m * 0.4;
+  g.fillStyle = sel ? C.sel : C.glassHi; g.beginPath(); g.roundRect(m, m * 0.6, W - 2 * m, H - 2 * m, (H - 2 * m) / 2); g.fill(); g.restore();
+}
+/** Small round priority dot (replaces the old edge stripe). */
+export function dot(g: CanvasRenderingContext2D, x: number, y: number, r: number, color: string): void { g.fillStyle = color; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
 export function text(g: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, color: string = C.ink, weight = 500, maxW = 9999, align: CanvasTextAlign = 'left'): void {
   g.fillStyle = color; g.font = `${weight} ${size}px ${FONT}`; g.textAlign = align; g.textBaseline = 'middle';
   let t = s;

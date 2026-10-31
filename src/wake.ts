@@ -140,14 +140,15 @@ export class Wake {
   // ------------------------------------------------------------ mood
   private orbItems: { m: Mood; orb: Mesh; label: Label; col: string }[] = [];
   private buildOrbs(): void {
-    const defs: [Mood, string, string, string][] = [['low', 'Low', '20 min + breaks', '#8AB4F8'], ['okay', 'Okay', '45 min blocks', '#8FD1A5'], ['focused', 'Focused', 'up to 90 min', '#FFB547']];
-    const head = new Label(0.3, 0.05); head.draw((g, W, H) => { panel(g, W, H, C.glass, C.accent); text(g, 'How do you feel today?', W / 2 + 4, H / 2, 26, C.ink, 600, W, 'center'); });
+    const defs: [Mood, string, string, string][] = [['low', 'Low', '20 min + breaks', '#8AB4F8'], ['okay', 'Okay', '45 min blocks', '#8FD1A5'], ['focused', 'Focused', 'up to 90 min', '#C7A3E0']];
+    const head = new Label(0.3, 0.05); head.draw((g, W, H) => { panel(g, W, H, C.glass); text(g, 'How do you feel today?', W / 2 + 4, H / 2, 26, C.ink, 600, W, 'center'); });
     head.mesh.position.set(0, 0.115, 0); this.orbs.add(head.mesh); (head.mesh.material as MeshBasicMaterial).depthTest = false; head.mesh.renderOrder = 20; // left of the orbs: nothing reaches up over a real monitor
     defs.forEach(([m, name, sub, col], i) => {
       const label = new Label(0.115, 0.115);
-      label.draw((g, W, H) => { panel(g, W, H, C.glass, col); text(g, name, W / 2, H * 0.74, 22, C.ink, 700, W, 'center'); text(g, sub, W / 2, H * 0.89, 13, C.mute, 500, W, 'center'); });
-      const orb = new Mesh(new IcosahedronGeometry(0.03, 2), new MeshBasicMaterial({ color: col, transparent: true }));
-      orb.position.set(0, 0.018, 0.02); label.mesh.add(orb); // child of the pressable, so a ray/poke on the orb counts
+      const draw = (sel: boolean) => label.draw((g, W, H) => { panel(g, W, H, sel ? C.sel : C.glass); text(g, name, W / 2, H * 0.74, 22, sel ? '#24262B' : C.ink, 700, W, 'center'); text(g, sub, W / 2, H * 0.89, 13, sel ? '#3A3C42' : C.mute, 500, W, 'center'); });
+      draw(false); label.mesh.userData.drawSel = draw;
+      const orb = new Mesh(new IcosahedronGeometry(0.024, 2), new MeshBasicMaterial({ color: col, transparent: true }));
+      orb.position.set(0, 0.022, 0.02); // orb sits fully above its name (never over the label text) label.mesh.add(orb); // child of the pressable, so a ray/poke on the orb counts
       this.h.pressable(label.mesh, this.orbs, () => this.pick(m)); label.mesh.position.set((i - 1) * 0.13, 0, 0);
       for (const x of [label.mesh, orb]) { (x.material as MeshBasicMaterial).depthTest = false; x.renderOrder = 20 + (x === orb ? 1 : 0); } // UI stays on top of room meshes
       this.orbItems.push({ m, orb, label, col });
@@ -158,17 +159,17 @@ export class Wake {
     this.orbs.position.copy(pos).addScaledVector(f, 0.45); this.orbs.position.y = pos.y - 0.07; // eye height (the wall boards step aside meanwhile) // within poke reach, below the timeline and a real monitor // inside the seated FoV, within reach
     this.orbs.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), Math.atan2(-f.x, -f.z));
     this.orbs.rotateX(-0.12); this.orbs.visible = true; this.moodOpen = true; this.picked = null; this.moodT = 0; document.body.dataset.mood = 'ask';
-    for (const o of this.orbItems) o.label.mesh.scale.setScalar(0.01);
+    for (const o of this.orbItems) { o.label.mesh.scale.setScalar(0.01); if (o.label.mesh.userData.selDrawn) { o.label.mesh.userData.selDrawn = false; o.label.mesh.userData.drawSel?.(false); } }
   }
   private updateOrbs(dt: number): void {
     this.moodT += dt;
     if (this.picked) { this.pickT += dt; const p = ease(this.pickT / 0.35);
       for (const o of this.orbItems) { const on = o.m === this.picked; o.label.mesh.scale.setScalar(on ? 1 + 0.25 * p : Math.max(0.01, 1 - p));
-        (o.orb.material as MeshBasicMaterial).color.set(on && Math.floor(this.pickT * 8) % 2 === 0 ? '#FFFFFF' : o.col); }
+        if (on && !o.label.mesh.userData.selDrawn) { o.label.mesh.userData.selDrawn = true; o.label.mesh.userData.drawSel?.(true); } } // selected: gold tile (no white flash)
       if (this.pickT > 0.9 && !this.pickHold) this.applyPick(this.picked); return; }
     this.orbItems.forEach((o, i) => { const k = ease((this.moodT - i * 0.12) / 0.25); o.label.mesh.scale.setScalar(Math.max(0.01, k)); o.orb.rotation.y += dt * 0.6; o.orb.position.y = 0.018 + Math.sin(this.moodT * 2 + i) * 0.004;
-      const on = this.hint === o.m; if (on) o.label.mesh.scale.setScalar(Math.max(0.01, k) * (1.15 + 0.04 * Math.sin(this.moodT * 6)));
-      o.orb.scale.setScalar(on ? 1.35 : 1); (o.orb.material as MeshBasicMaterial).color.set(on && Math.floor(this.moodT * 3) % 2 === 0 ? '#FFFFFF' : o.col); });
+      const on = this.hint === o.m; if (on) o.label.mesh.scale.setScalar(Math.max(0.01, k) * 1.06); // autoplay hint: a subtle lift only
+      o.orb.scale.setScalar(1); });
   }
   private picked: Mood | null = null; private pickT = 0;
   /** Autoplay: the orb about to be poked is highlighted (grows, pulses white) so the choice reads on video. */

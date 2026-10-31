@@ -1,10 +1,11 @@
 /** One palette for every panel (style_reference.md): dark glass, light text, one warm morning accent. */
 export const C = {
-  glass: '#14161C', glassHi: '#262A34', glassLo: '#3A3F4B',
-  ink: '#F2F4F8', mute: '#A7AFBD', accent: '#FFB547',
+  glass: '#1E2128', glassHi: '#2E323C', glassLo: '#3C414D',
+  ink: '#D9DDE4', mute: '#A3ABB8', accent: '#FFB547', // gray text (never pure white); gold = selected state only
+  sel: '#FFB547',
   // legacy names, mapped onto the same palette
-  paper: '#14161C', sage: '#FFB547', sageDeep: '#FFB547', clay: '#FFB547', sky: '#8AB4F8', warn: '#FF8A5B',
-  prio: { 1: '#FFB547', 2: '#8AB4F8', 3: '#8FD1A5' } as Record<number, string>,
+  paper: '#1E2128', sage: '#B4C6DC', sageDeep: '#B4C6DC', clay: '#B4C6DC', sky: '#8AB4F8', warn: '#E8957A',
+  prio: { 1: '#E39B8B', 2: '#8AB4F8', 3: '#8FD1A5' } as Record<number, string>,
 };
 /** Glass alpha for panels (style reference: #14161C @ 0.75). */
 export let GLASS_ALPHA = 0.75;
@@ -16,7 +17,7 @@ export function setContrast(on: boolean): void {
   HC.on = on; GLASS_ALPHA = on ? 1 : 0.75;
   const c = C as unknown as Record<string, string>;
   for (const k of Object.keys(BASE)) c[k] = BASE[k];
-  if (on) { c.glass = '#000000'; c.paper = '#000000'; c.glassHi = '#000000'; c.glassLo = '#1A1A1A'; c.ink = '#FFFFFF'; c.mute = '#FFFFFF'; }
+  if (on) { c.glass = '#141518'; c.paper = '#141518'; c.glassHi = '#1C1D21'; c.glassLo = '#2A2B30'; c.ink = '#EDEEF0'; c.mute = '#E2E3E6'; } // high contrast: near-black / near-white (no pure black or white)
 }
 if (HC.on) setContrast(true);
 /** Inter (SIL OFL 1.1, public/fonts/inter/OFL.txt), the typeface Meta recommends for Horizon OS UI. */
@@ -68,6 +69,18 @@ function sample(name: (typeof SAMPLES)[number], fallback: () => void, vol = 0.9)
     const buf = buffers.get(name); if (!buf) { fallback(); return; }
     const src = ctx.createBufferSource(), g = ctx.createGain(); g.gain.value = vol;
     src.buffer = buf; src.connect(g).connect(ctx.destination); src.start();
+  } catch { /* audio optional */ }
+}
+/** Soft click for every pinch / poke select: synthesized (WebAudio noise tick + short sine), no audio files. */
+export function click(): void {
+  try {
+    if (!ctx || ctx.state !== 'running') { unlockAudio(); if (!ctx || ctx.state !== 'running') return; }
+    const n = ctx.currentTime, len = 0.03; const buf = ctx.createBuffer(1, Math.round(ctx.sampleRate * len), ctx.sampleRate); const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (d.length * 0.18));
+    const src = ctx.createBufferSource(); src.buffer = buf; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2400; f.Q.value = 1.2;
+    const g = ctx.createGain(); g.gain.value = 0.05; src.connect(f).connect(g).connect(ctx.destination); src.start(n);
+    const o = ctx.createOscillator(), og = ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(1500, n); o.frequency.exponentialRampToValueAtTime(900, n + 0.05);
+    og.gain.setValueAtTime(0.025, n); og.gain.exponentialRampToValueAtTime(0.0001, n + 0.06); o.connect(og).connect(ctx.destination); o.start(n); o.stop(n + 0.08);
   } catch { /* audio optional */ }
 }
 export const sfx = {

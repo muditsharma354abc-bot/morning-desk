@@ -57,7 +57,11 @@ const WALL_UP = 0.16;                          // timeline sits above a real mon
 const SWIPE_OK = true;
 /** Comfort: poke panels ~44 cm away, centred ~12° below the eye line; near panels drawn at 0.75x so they stay inside the central view. */
 const VIEW_D = 0.44, VIEW_DROP = -0.44 * Math.tan((12 * Math.PI) / 180), NEAR_S = 0.75;
-const ROW_X = (i: number) => -0.29 + i * 0.145; // desk button row: one row of pills
+const ROW_TXT = ['📋 Plan for me', '🌙 Wind down', '? Tutorial', '📍 Re-place', '🎯 Claim zone'];
+const ROW_W = (t: string) => { const g = document.createElement('canvas').getContext('2d')!; g.font = `600 22px ${FONT}`; return Math.max(0.11, g.measureText(t).width / 1000 + 0.04); };
+const ROW_WS = ROW_TXT.map(ROW_W); const ROW_TOT = ROW_WS.reduce((a, b) => a + b, 0) + 0.018 * (ROW_WS.length - 1);
+const ROW_X = (i: number) => -ROW_TOT / 2 + ROW_WS.slice(0, i).reduce((a, b) => a + b + 0.018, 0) + ROW_WS[Math.min(i, ROW_WS.length - 1)] / 2; // desk button row: centred, widths fit 22px text (~24 dp at 0.76 m)
+const ROW_WI = (i: number) => ROW_WS[Math.min(i, ROW_WS.length - 1)];
 /** Cut: a 44 cm arc row sits in the reach path to the wall timeline (autoplay's hand poked Wind down on its way to a card). The row stays on the desk (~75 cm). */
 const ARC_ROW = false;
 const SHOW_TIPS = false;
@@ -354,11 +358,11 @@ export class MorningDeskSystem extends createSystem({
     this.sampleBtn = this.button('Sample week (demo data): off', 0.27, () => this.toggleSample(), this.leftE);
     this.sampleBtn.label.mesh.position.set(0, -0.385, 0.004); this.sampleBtn.label.mesh.visible = false;
     if (TEST && !CLEAN_CAPTURE && !new URLSearchParams(location.search).has('autoplay')) this.buildTest(); // never in filming runs
-    const hc = this.button('◐ Contrast', 0.11, () => this.toggleContrast(), this.rightE); this.chips.push(hc.label.mesh); hc.label.mesh.position.set(0.225, 0.215, 0.004); (hc.label.mesh.material as MeshBasicMaterial).depthTest = false; hc.label.mesh.renderOrder = 12; // never hidden behind Meetings
+    const hc = this.button('◐ Contrast', 0.15, () => this.toggleContrast(), this.rightE); this.chips.push(hc.label.mesh); hc.label.mesh.position.set(0.225, 0.215, 0.004); (hc.label.mesh.material as MeshBasicMaterial).depthTest = false; hc.label.mesh.renderOrder = 12; // never hidden behind Meetings
     if (CLEAN_CAPTURE && !MR_FORCED) hc.label.mesh.visible = false; // the filmed v1 layout stays as recorded
     this.pendHeader = new Label(0.36, 0.05); this.pendHeader.mesh.position.set(0, 0.16, 0); this.right.add(this.pendHeader.mesh);
-    this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag to plan', 30, H / 2, 20, C.ink, 700, W - 40); });
-    this.progress = new Label(0.7, 0.08); this.progress.mesh.position.set(0, 0.44, -0.25); this.wall.add(this.progress.mesh);
+    this.pendHeader.draw((g, W, H) => { panel(g, W, H, C.paper, C.sky, 0.95); text(g, '🗂 Pending · drag to plan', 30, H / 2, 26, C.ink, 700, W - 40); });
+    this.progress = new Label(0.8, 0.1); this.progress.mesh.position.set(0, 0.44, -0.25); this.wall.add(this.progress.mesh);
 
     // Desk surface (soft paper tray) + streak.
     const tray = this.tray;
@@ -393,19 +397,19 @@ export class MorningDeskSystem extends createSystem({
       ['? Tutorial', () => this.startTutorial()], ...(SHOW_RESET ? [['↺ Demo reset', () => this.reset(true)] as [string, () => void]] : []),
     ];
     row.forEach(([t, fn], i) => {
-      const b = this.button(t, 0.118, fn, this.deskE, 0.044); this.deskRow.push(b.label.mesh); // one row, ~2.7 cm gaps
+      const b = this.button(t, ROW_WI(i), fn, this.deskE, 0.05); this.deskRow.push(b.label.mesh); // one row, ~2.7 cm gaps
       b.label.mesh.position.set(ROW_X(i), 0.035, -0.17); b.label.mesh.rotation.x = -0.5;
     });
 
     // v2 MR: tap-to-place hint + Re-place button (front-left of the desk, within reach)
     this.placeHint = new Label(0.42, 0.06); this.placeHint.mesh.visible = false; this.placeHint.mesh.position.set(0, 0.12, -0.05); this.placeHint.mesh.rotation.x = -0.35; this.desk.add(this.placeHint.mesh);
     if (!CLEAN_CAPTURE || MR_FORCED) {
-      this.replaceBtn = this.button('📍 Re-place', 0.118, () => this.replace(), this.deskE, 0.044);
+      this.replaceBtn = this.button('📍 Re-place', ROW_WI(this.deskRow.length), () => this.replace(), this.deskE, 0.05);
       this.replaceBtn.label.mesh.position.set(ROW_X(this.deskRow.length), 0.035, -0.17); this.replaceBtn.label.mesh.rotation.x = -0.5; this.replaceBtn.label.mesh.visible = false; // end of the desk button row: inside the level-gaze view, within reach
     }
 
     if (!CLEAN_CAPTURE || MR_FORCED) {
-      this.zoneBtn = this.button('🎯 Claim zone', 0.118, () => this.toggleClaim(), this.deskE, 0.044);
+      this.zoneBtn = this.button('🎯 Claim zone', ROW_WI(this.deskRow.length + 1), () => this.toggleClaim(), this.deskE, 0.05);
       this.zoneBtn.label.mesh.position.set(ROW_X(this.deskRow.length + 1), 0.035, -0.17); this.zoneBtn.label.mesh.rotation.x = -0.5; this.zoneBtn.label.mesh.visible = false;
     }
     for (const z of this.zones) this.addZoneMarker(z);
@@ -969,7 +973,7 @@ export class MorningDeskSystem extends createSystem({
     label.mesh.userData.btn = t;
     label.draw((g, W, H) => {
       pill(g, W, H, sel);
-      let size = Math.round(H * 0.46); g.font = `600 ${size}px ${FONT}`; while (g.measureText(t).width > W - H * 0.6 && size > 12) { size--; g.font = `600 ${size}px ${FONT}`; }
+      let size = Math.round(H * 0.46); g.font = `600 ${size}px ${FONT}`; while (g.measureText(t).width > W - H * 0.5 && size > 18) { size--; g.font = `600 ${size}px ${FONT}`; }
       text(g, t, W / 2, H / 2, size, sel ? '#24262B' : C.ink, 600, W, 'center');
     });
   }
@@ -1095,16 +1099,17 @@ export class MorningDeskSystem extends createSystem({
         if (over) dot(g, W / 2, H * 0.1, 6, C.warn); else dot(g, W / 2, H * 0.1, 6, C.prio[t.priority]);
         const words = `${t.done ? '✓\u00A0' : ''}${t.title}`.split(' ');
         let fs = 26, lines: string[] = [];
-        for (; fs >= 24; fs--) { g.font = `700 ${fs}px ${FONT}`; lines = []; for (const w of words) { const last = lines[lines.length - 1]; if (last !== undefined && g.measureText(`${last} ${w}`).width <= W - 16) lines[lines.length - 1] = `${last} ${w}`; else lines.push(w); }
+        for (; fs >= 26; fs--) { g.font = `700 ${fs}px ${FONT}`; lines = []; for (const w of words) { const last = lines[lines.length - 1]; if (last !== undefined && g.measureText(`${last} ${w}`).width <= W - 16) lines[lines.length - 1] = `${last} ${w}`; else lines.push(w); }
           if (lines.length <= 2 && lines.every((l) => g.measureText(l).width <= W - 16)) break; }
+        fs = Math.max(fs, 26); g.font = `700 ${fs}px ${FONT}`;
         if (lines.length > 2) { lines = [lines[0], lines.slice(1).join(' ')]; } // 2nd line ellipsised by text() when it still does not fit
         const cy = H * 0.44; lines.forEach((ln, k) => text(g, ln, W / 2, cy + (k - (lines.length - 1) / 2) * fs * 1.15, fs, C.ink, 700, W - 12, 'center'));
         const d = t.done ? `${dur(t.actual ?? t.minutes)}` : dur(t.minutes); const full = `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${d}`;
-        let ts = 22; g.font = `600 ${ts}px ${FONT}`; const show = g.measureText(full).width <= W - 16 ? full : d; while (ts > 18 && g.measureText(show).width > W - 12) { ts--; g.font = `600 ${ts}px ${FONT}`; }
+        let ts = 26; g.font = `600 ${ts}px ${FONT}`; const show = g.measureText(full).width <= W - 16 ? full : d; while (ts > 26 && g.measureText(show).width > W - 12) { ts--; g.font = `600 ${ts}px ${FONT}`; }
         text(g, show, W / 2, H * 0.82, ts, C.mute, 600, W, 'center');
       } else {
         panel(g, W, H, C.glass, C.prio[t.priority], 1);
-        text(g, `→ ${t.title}`, 24, H / 2, 15, C.ink, 600, W - 30);
+        text(g, `→ ${t.title}`, 24, H / 2, 24, C.ink, 600, W - 30);
       }
     });
   }
@@ -1310,7 +1315,7 @@ export class MorningDeskSystem extends createSystem({
     this.detail.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.prio[t.priority]);
       text(g, t.title, 36, 34, 24, C.ink, 700, W - 60);
-      text(g, `${dur(t.minutes)} · ${['', 'must do', 'should do', 'nice to have'][t.priority]}${place === 'timeline' ? ` · starts ${fmt(this.s.dayStart + this.slotStart(id))}` : ''}`, 36, 72, 17, C.sageDeep, 600, W - 60);
+      text(g, `${dur(t.minutes)} · ${['', 'must do', 'should do', 'nice to have'][t.priority]}${place === 'timeline' ? ` · starts ${fmt(this.s.dayStart + this.slotStart(id))}` : ''}`, 36, 72, 24, C.sageDeep, 600, W - 60);
       para(g, t.note, 36, 98, 18, W - 70);
       text(g, 'pinch / click to close', W - 24, H - 22, 13, C.mute, 400, W, 'right');
     });
@@ -1513,7 +1518,7 @@ export class MorningDeskSystem extends createSystem({
     this.progress.mesh.visible = done.length > 0 && !this.wind;
     this.progress.draw((g, W, H) => {
       panel(g, W, H, C.glass, undefined, 0.8);
-      text(g, `✓ Completed ${done.length}/${tasks.length}${done.length ? ': ' + done.map((id) => s.tasks[id].title).join(', ') : ''}`, 24, H * 0.36, 20, C.sageDeep, 700, W - 48);
+      text(g, `✓ Completed ${done.length}/${tasks.length}${done.length ? ': ' + done.map((id) => s.tasks[id].title).join(', ') : ''}`, 24, H * 0.36, 34, C.sageDeep, 700, W - 48);
       g.fillStyle = C.glassLo; g.beginPath(); g.roundRect(24, H * 0.66, W - 48, 10, 5); g.fill();
       g.fillStyle = C.sage; g.beginPath(); g.roundRect(24, H * 0.66, (W - 48) * (done.length / Math.max(1, tasks.length)), 10, 5); g.fill();
     });
@@ -1529,8 +1534,8 @@ export class MorningDeskSystem extends createSystem({
       l.draw((g, W, H) => {
         g.fillStyle = '#2B3A55'; g.globalAlpha = 0.9; g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, 14); g.fill(); g.globalAlpha = 1;
         text(g, '📅', W / 2, H * 0.3, 26, C.ink, 400, W, 'center');
-        text(g, fmt(m.start), W / 2, H * 0.58, 22, C.ink, 700, W - 6, 'center');
-        text(g, m.title, W / 2, H * 0.8, 20, C.mute, 500, W - 6, 'center');
+        text(g, fmt(m.start), W / 2, H * 0.58, 26, C.ink, 700, W - 6, 'center');
+        text(g, m.title, W / 2, H * 0.8, 24, C.mute, 500, W - 6, 'center');
       });
     });
   }
@@ -1775,7 +1780,7 @@ export class MorningDeskSystem extends createSystem({
     if (id === this.tipId) return;
     this.tipId = id; this.tip.mesh.visible = !!id; if (!id) return;
     const t = this.s.tasks[id]; const m = this.items.get(id)!.label.mesh;
-    this.tip.draw((g, W, H) => { panel(g, W, H, C.glassHi, C.sky, 0.95); text(g, `${t.title} · ${fmt(this.s.dayStart + this.slotStart(id))} · ${dur(t.minutes)}`, W / 2, H / 2, 17, C.ink, 600, W - 20, 'center'); });
+    this.tip.draw((g, W, H) => { panel(g, W, H, C.glassHi, C.sky, 0.95); text(g, `${t.title} · ${fmt(this.s.dayStart + this.slotStart(id))} · ${dur(t.minutes)}`, W / 2, H / 2, 26, C.ink, 600, W - 20, 'center'); });
     const local = this.wall.worldToLocal(m.position.clone());
     this.tip.mesh.position.set(Math.max(-0.4, Math.min(0.45, local.x)), 0.125, 0.03);
   }

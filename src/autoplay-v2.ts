@@ -121,7 +121,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       { const fid = sys.s.stack.find((x: string) => sys.zoneTarget(x, new Vector3(), new (sys.desk.quaternion.constructor)()) && sys.lastZone === 'focus'); if (fid) sys.landGlow(fid, 2800); } // the landed card glows gold (selected) ~2 s
       say('🎯 Focus zone: the long card lands on the patch'); document.body.dataset.zoneLand = 'hold'; await sleep(600); await shotHold(); await sleep(1400); delete document.body.dataset.zoneLand;
       await lean(700, null); await turn(800, home.y, home.x); }
-    say('🎯 Claim a Quick zone'); sys.claimAt([0.42, 0.01, -0.1]); await sleep(2600);
+    say('🎯 Claim a Quick zone'); sys.claimAt([0.47, 0.01, 0.06]); await sleep(2600);
     const inZone = (k: string) => (x: string) => sys.items.get(x)?.label.mesh.visible && !!sys.zoneTarget(x, new Vector3(), new (sys.desk.quaternion.constructor)()) && sys.lastZone === k;
     const quick = sys.s.stack.filter(inZone('quick')); // glow close-up: the faced card glows beside a plain neighbour on the same patch
     const id = (quick.length >= 2 ? quick[0] : undefined) ?? sys.s.stack.find(inZone('focus')) ?? sys.s.stack.find((x: string) => sys.items.get(x)?.label.mesh.visible);

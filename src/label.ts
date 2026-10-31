@@ -17,7 +17,7 @@ export class Label {
     this.tex = new CanvasTexture(this.canvas);
     this.tex.colorSpace = SRGBColorSpace;
     this.tex.anisotropy = 4;
-    this.mesh = new Mesh(new PlaneGeometry(w, h), new MeshBasicMaterial({ map: this.tex, transparent: true }));
+    this.mesh = new Mesh(new PlaneGeometry(w, h), new MeshBasicMaterial({ map: this.tex, transparent: true })); this.mesh.userData.label = this;
     Label.all.add(this);
   }
   resize(w: number, h: number): void {
@@ -30,10 +30,12 @@ export class Label {
     this.tex = new CanvasTexture(this.canvas); this.tex.colorSpace = SRGBColorSpace;
     (this.mesh.material as MeshBasicMaterial).map = this.tex;
   }
+  /** Smallest font size (canvas px = mm on the panel) drawn on this label: the text audit turns it into dp at the real distance. */
+  minPx = 0; static cur: Label | null = null;
   draw(fn: (g: CanvasRenderingContext2D, W: number, H: number) => void): void {
-    this.last = fn; const g = this.canvas.getContext('2d')!;
+    this.last = fn; this.minPx = 0; Label.cur = this; const g = this.canvas.getContext('2d')!;
     g.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    fn(g, this.canvas.width, this.canvas.height);
+    fn(g, this.canvas.width, this.canvas.height); Label.cur = null;
     this.tex.needsUpdate = true;
   }
 }
@@ -58,6 +60,7 @@ export function pill(g: CanvasRenderingContext2D, W: number, H: number, sel = fa
 /** Small round priority dot (replaces the old edge stripe). */
 export function dot(g: CanvasRenderingContext2D, x: number, y: number, r: number, color: string): void { g.fillStyle = color; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
 export function text(g: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, color: string = C.ink, weight = 500, maxW = 9999, align: CanvasTextAlign = 'left'): void {
+  const L = Label.cur; if (L && s.trim()) L.minPx = L.minPx ? Math.min(L.minPx, size) : size;
   g.fillStyle = color; g.font = `${weight} ${size}px ${FONT}`; g.textAlign = align; g.textBaseline = 'middle';
   let t = s;
   while (g.measureText(t).width > maxW && t.length > 3) t = t.slice(0, -2);
@@ -65,6 +68,7 @@ export function text(g: CanvasRenderingContext2D, s: string, x: number, y: numbe
 }
 /** Word-wrapped paragraph. */
 export function para(g: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, maxW: number, color: string = C.ink): void {
+  const L = Label.cur; if (L && s.trim()) L.minPx = L.minPx ? Math.min(L.minPx, size) : size;
   g.font = `400 ${size}px ${FONT}`; g.fillStyle = color; g.textAlign = 'left'; g.textBaseline = 'top';
   let line = '', yy = y;
   for (const w of s.split(' ')) {

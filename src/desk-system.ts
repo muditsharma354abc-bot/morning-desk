@@ -3,13 +3,13 @@ import {
   Hovered, OneHandGrabbable, PokeInteractable, Pressed, Quaternion, RayInteractable, SphereGeometry, Vector2, Vector3,
   VisibilityState, XRAnchor, XRPlane, SessionMode, PlaneGeometry, BoxGeometry, Box3, Ray, CanvasTexture, SRGBColorSpace,
 } from '@iwsdk/core';
-import { Label, panel, para, text } from './label.js';
+import { Label, panel, para, pill, dot, text } from './label.js';
 import { LAMP } from './hide-lamp.js';
 import { PlanChange, RulePlanner } from './planner.js';
 import { Wake } from './wake.js';
 import { loadZones, saveZones, Zone, ZoneKind, ZONE_NAME, ZONE_CARDS, zoneMarker, zoneSlot, zoneWants, PATCH_H } from './zones.js';
 import { Raycaster } from '@iwsdk/core';
-import { C, FONT, HC, setContrast, sfx, unlockAudio } from './style.js';
+import { C, FONT, HC, click, setContrast, sfx, unlockAudio } from './style.js';
 import { MOODS, Mood, today, clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, lastWeek, layout, load, PlanState, save, scheduledMinutes } from './state.js';
 import { AdditiveBlending, BackSide, DepthOccludable, MeshBasicMaterial, OcclusionShadersMode } from '@iwsdk/core';
 /** Demo days run the focus timer accelerated (and say so on the panel). */
@@ -53,6 +53,8 @@ const ANCHOR_UUID_KEY = 'iwsdk_scene_anchor_uuid'; // IWSDK SceneUnderstandingSy
 const DESK_FWD = 0.4, DESK_DOWN = 0.26;      // card spread in easy reach
 const WALL_FWD = 1.1;
 const WALL_UP = 0.16;                          // timeline sits above a real monitor (seated eye line ≈ monitor top)                         // fallback timeline distance, eye height
+/** Thumb microgesture swipe (Quest hand gamepad buttons 5-6) advances Wind down; verified in the IWER emulator only (not on a headset). */
+const SWIPE_OK = true;
 const SHOW_RESET = new URLSearchParams(location.search).get('reset') === '1'; // Demo reset only behind &reset=1 (hidden in the default / recording view)
 const TRACK_W = 0.96, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
 const CARD_W = 0.16, CARD_H = 0.09;
@@ -222,7 +224,7 @@ export class MorningDeskSystem extends createSystem({
     this.drawZoneBtn('✓ Set zone here'); document.body.dataset.claim = 'aim';
   }
   private drawZoneBtn(t: string): void { const b = this.zoneBtn; if (!b) return; b.label.mesh.userData.btn = t;
-    b.label.draw((g, W, H) => { panel(g, W, H, C.glassHi, C.sky, 1); let sz = Math.round(H * 0.52); g.font = `600 ${sz}px ${FONT}`; while (g.measureText(t).width > W - 20 && sz > 12) { sz--; g.font = `600 ${sz}px ${FONT}`; } text(g, t, W / 2, H / 2, sz, C.ink, 600, W, 'center'); }); }
+    this.drawBtn(b.label, t, !!this.claim); }
   /** Autoplay (&zones=1): claim a zone at a desk-local spot, same path as a real gaze + pinch claim. */
   claimAt(local: [number, number, number], surface: 'flat' | 'wall' = 'flat'): void {
     if (!this.claim) this.toggleClaim(); if (!this.claim) return;
@@ -818,10 +820,11 @@ export class MorningDeskSystem extends createSystem({
     this.windPanel = new Label(0.46, 0.25); this.windPanel.mesh.visible = false;
     (this.windPanel.mesh.material as MeshBasicMaterial).depthTest = false; this.windPanel.mesh.renderOrder = 10;
     this.windE = this.world.createTransformEntity(this.windPanel.mesh, this.deskE);
-    const a = this.button('a', 0.16, () => this.windChoice(true), this.windE), b = this.button('b', 0.16, () => this.windChoice(false), this.windE);
-    a.label.mesh.position.set(-0.09, -0.093, 0.004); b.label.mesh.position.set(0.09, -0.093, 0.004);
-    for (const x of [a, b]) { (x.label.mesh.material as MeshBasicMaterial).depthTest = false; x.label.mesh.renderOrder = 11; }
-    this.windBtns = [a, b];
+    // one row of pills under the card: [Next →] [secondary] [✕ Close] — every step has an explicit Close (no tap-outside dismiss)
+    const a = this.button('a', 0.135, () => this.windChoice(true), this.windE, 0.05), b = this.button('b', 0.135, () => this.windChoice(false), this.windE, 0.05), c = this.button('✕ Close', 0.135, () => this.closeWind(), this.windE, 0.05);
+    a.label.mesh.position.set(-0.155, -0.165, 0.004); b.label.mesh.position.set(0, -0.165, 0.004); c.label.mesh.position.set(0.155, -0.165, 0.004);
+    for (const x of [a, b, c]) { (x.label.mesh.material as MeshBasicMaterial).depthTest = false; x.label.mesh.renderOrder = 11; }
+    this.windBtns = [a, b, c];
   }
   /** Unfinished = scheduled today but not done (so done + unfinished = scheduled). Real state only. */
   private unfinished(): string[] {
@@ -844,6 +847,16 @@ export class MorningDeskSystem extends createSystem({
     else { if (a) { this.closeDay(); return; } w.step = 0; w.kept = []; w.dropped = []; }
     document.body.dataset.wind = String(w.step); this.drawWind();
   }
+  /** Thumb microgesture on either hand (Quest hand gamepad: button 5 = swipe left, 6 = swipe right): right → Next, left → Drop. Edge-triggered. */
+  private swipePrev: Record<string, boolean> = {};
+  private swipeStep(): void {
+    const ses = this.world.renderer.xr.getSession(); if (!ses || !this.wind) return;
+    for (const src of ses.inputSources) { const gp = src.gamepad; if (!src.hand || !gp) continue;
+      for (const i of [5, 6]) { const k = src.handedness + i, on = !!gp.buttons[i]?.pressed; const edge = on && !this.swipePrev[k]; this.swipePrev[k] = on; if (!edge || !this.wind) continue;
+        const w = this.wind, n = w.list.length; const right = i === 6;
+        if (right && w.step <= n) { document.body.dataset.swipe = String(Number(document.body.dataset.swipe ?? 0) + 1); this.windChoice(true); }
+        else if (!right && w.step >= 1 && w.step <= n) { document.body.dataset.swipe = String(Number(document.body.dataset.swipe ?? 0) + 1); this.windChoice(false); } } }
+  }
   private closeWind(): void { this.wake?.tint(false); this.wind = null; this.windPanel.mesh.visible = false; delete document.body.dataset.wind; }
   private closeDay(): void {
     queueMicrotask(() => this.drawHistory());
@@ -860,11 +873,8 @@ export class MorningDeskSystem extends createSystem({
   }
   private drawWind(): void {
     const w = this.wind; if (!w) return; const s = this.s; const n = w.list.length;
-    const [la, lb] = w.step === 0 ? ['Next →', '✕ Close'] : w.step <= n ? ['→ Tomorrow', '✕ Drop'] : ['✓ Close day', '← Back'];
-    this.windBtns.forEach((b, i) => {
-      const t = i ? lb : la; b.label.mesh.userData.btn = t;
-      b.label.draw((g, W, H) => { panel(g, W, H, i ? C.glassLo : C.glassHi, i ? undefined : C.sky, 1); text(g, t, W / 2, H / 2, 21, C.ink, 600, W - 16, 'center'); });
-    });
+        const labels = w.step === 0 ? ['Next →', '', '✕ Close'] : w.step <= n ? ['Next →', '🗑 Drop', '✕ Close'] : ['✓ Close day', '← Back', '✕ Close'];
+    this.windBtns.forEach((b, i) => { b.label.mesh.visible = !!labels[i]; if (labels[i]) this.drawBtn(b.label, labels[i]); });
     this.windPanel.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sky, 1);
       text(g, '🌙 Wind down', 28, 30, 23, C.ink, 700);
@@ -882,7 +892,7 @@ export class MorningDeskSystem extends createSystem({
         const t = s.tasks[w.list[w.step - 1]];
         text(g, t.title, 28, 78, 26, C.ink, 700, W - 56);
         text(g, `${dur(t.minutes)} · ${['', 'must do', 'should do', 'nice to have'][t.priority]}`, 28, 112, 17, C.sageDeep, 600, W - 56);
-        text(g, 'Roll into tomorrow?  👍 keep · 👎 drop', 28, 146, 16, C.mute, 500, W - 56);
+        text(g, `Next keeps it for tomorrow · 🗑 Drop removes it${SWIPE_OK ? ' · thumb swipe → Next' : ''}`, 28, 146, 16, C.mute, 500, W - 56);
       } else {
         const titles = [...w.kept, ...this.parked().filter((x) => !w.kept.includes(x))].map((id) => s.tasks[id]?.title).filter(Boolean);
         text(g, titles.length ? 'Tomorrow starts with:' : 'Tomorrow starts fresh.', 28, 70, 18, C.ink, 700, W - 56);
@@ -951,18 +961,30 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- items
+  /** Every button is a pill: gray, gray text; gold only when `sel` (selected state). Text shrinks to fit, never ellipsised. */
+  private drawBtn(label: Label, t: string, sel = false): void {
+    label.mesh.userData.btn = t;
+    label.draw((g, W, H) => {
+      pill(g, W, H, sel);
+      let size = Math.round(H * 0.46); g.font = `600 ${size}px ${FONT}`; while (g.measureText(t).width > W - H * 0.6 && size > 12) { size--; g.font = `600 ${size}px ${FONT}`; }
+      text(g, t, W / 2, H / 2, size, sel ? '#24262B' : C.ink, 600, W, 'center');
+    });
+  }
+  /** Pinch / poke select feedback: short scale-press (0.9x → 1x over 160 ms) + soft synthesized click. */
+  private pressFx(m: Mesh): void { m.userData.pressT = performance.now(); if (m.userData.pressBase === undefined) m.userData.pressBase = m.scale.x; click(); this.pressing.add(m); }
+  private pressing = new Set<Mesh>();
+  private pressStep(): void {
+    for (const m of this.pressing) { const u = (performance.now() - m.userData.pressT) / 160; const base = m.userData.pressBase ?? 1;
+      if (u >= 1) { m.scale.setScalar(base); delete m.userData.pressBase; this.pressing.delete(m); continue; }
+      m.scale.setScalar(base * (1 - 0.1 * Math.sin(Math.PI * Math.min(1, u)))); }
+  }
   private button(t: string, w: number, action: () => void, parent: Entity, h = 0.042): Btn {
     const label = new Label(w, h);
-    label.draw((g, W, H) => {
-      panel(g, W, H, C.glassHi, C.sky, 1);
-      let size = Math.round(H * 0.52); g.font = `600 ${size}px ${FONT}`; while (g.measureText(t).width > W - 20 && size > 12) { size--; g.font = `600 ${size}px ${FONT}`; }
-      text(g, t, W / 2, H / 2, size, C.ink, 600, W, 'center');
-    });
+    this.drawBtn(label, t);
     const entity = this.world.createTransformEntity(label.mesh, parent);
-    label.mesh.userData.btn = t;
     entity.addComponent(RayInteractable);
     entity.addComponent(PokeInteractable); // fingertip press
-    const b = { label, entity, action };
+    const b = { label, entity, action: () => { this.pressFx(label.mesh); action(); } };
     this.buttons.set(entity.index, b);
     return b;
   }
@@ -1219,7 +1241,7 @@ export class MorningDeskSystem extends createSystem({
   toggleSample(): void {
     this.sampleWeek = !this.sampleWeek; const t = `Sample week (demo data): ${this.sampleWeek ? 'on' : 'off'}`;
     this.sampleBtn.label.mesh.userData.btn = t;
-    this.sampleBtn.label.draw((g, W, H) => { panel(g, W, H, this.sampleWeek ? '#3A3F4B' : C.glassHi, C.sky, 1); let sz = 18; g.font = `600 ${sz}px ${FONT}`; while (g.measureText(t).width > W - 24 && sz > 11) { sz--; g.font = `600 ${sz}px ${FONT}`; } text(g, t, W / 2, H / 2, sz, C.ink, 600, 9999, 'center'); });
+    this.drawBtn(this.sampleBtn.label, t, this.sampleWeek);
     const el = document.getElementById('btn-sample'); if (el) el.textContent = t;
     this.history.mesh.visible = true; this.histT = 25; this.syncHistBtns(); this.drawHistory();
   }
@@ -1773,6 +1795,7 @@ export class MorningDeskSystem extends createSystem({
     if (!this.detailId) this.detail.mesh.visible = false;
     if ((this.pending || this.focus || this.wind) && this.inXR()) this.detectThumbs(delta);
     if (this.inXR()) this.sweptPoke();
+    if (SWIPE_OK && this.wind && this.inXR()) this.swipeStep();
     this.updateFocus(delta);
     if (this.sumDraw && this.summary.mesh.visible && this.streakAnim.t < 3.6) {
       const p0 = Math.floor(this.streakAnim.t * 12); this.streakAnim.t += delta;
@@ -1795,7 +1818,7 @@ export class MorningDeskSystem extends createSystem({
         if (this.agentOn() && this.morningRun && !this.pending && !this.wind && !this.focus && !this.wake.busy() && !this.wake.moodShown() && this.s.windAutoDay !== today() && this.evening()) {
           this.s.windAutoDay = today(); save(this.s); this.openWindDown(); document.body.dataset.windAuto = '1'; } } }
     if (this.zoneBtn) this.zoneBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.wake?.moodShown() && !this.focus && !this.wind;
-    this.claimStep(delta); this.gazeStep(delta); this.zonePulseStep(); if (this.zoneFly && performance.now() - this.zoneFly.t0 > 1300) this.zoneFly = null;
+    this.pressStep(); this.claimStep(delta); this.gazeStep(delta); this.zonePulseStep(); if (this.zoneFly && performance.now() - this.zoneFly.t0 > 1300) this.zoneFly = null;
     if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.mr.vr && !this.wake?.moodShown();
     // agent acts on its own after a short beat
     if (this.agentTimer > 0 && !this.wake?.busy() && !this.wake?.moodShown()) { this.agentTimer -= delta; if (this.agentTimer <= 0 && !this.pending) this.runAgent(); }

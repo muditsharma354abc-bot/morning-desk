@@ -117,7 +117,9 @@ export function lantern(): Group {
   const prof = [[0.012, 0], [0.05, 0.02], [0.068, 0.07], [0.07, 0.11], [0.06, 0.16], [0.03, 0.19], [0.012, 0.2]].map(([x, y]) => new Vector2(x, y));
   g.add(new Mesh(new LatheGeometry(prof, 8), basic(THEME.warm, THEME.emissive.lantern)));
   g.add(new Mesh(merge([at(new CylinderGeometry(0.035, 0.04, 0.012, 8), 0, 0.006, 0), at(new CylinderGeometry(0.02, 0.02, 0.01, 8), 0, 0.205, 0)]), basic(THEME.g3)));
-  const glow = new Mesh(new CircleGeometry(0.3, 24), new MeshBasicMaterial({ map: radial('rgba(246,197,140,0.6)', 'rgba(246,197,140,0)'), transparent: true, depthWrite: false, blending: AdditiveBlending, toneMapped: false }));
-  glow.rotation.x = -Math.PI / 2; glow.position.y = 0.003; g.add(glow);
+  const glow = new Mesh(new CircleGeometry(0.34, 24), new MeshBasicMaterial({ map: radial('rgba(255,200,140,0.95)', 'rgba(255,200,140,0)'), transparent: true, depthWrite: false, blending: AdditiveBlending, toneMapped: false }));
+  glow.rotation.x = -Math.PI / 2; glow.position.y = 0.02; glow.renderOrder = 8; g.add(glow);
+  const halo = new Mesh(new SphereGeometry(0.16, 16, 12), new MeshBasicMaterial({ map: radial('rgba(255,214,160,0.9)', 'rgba(255,214,160,0)'), color: emi('#FFD6A0', 0.6), transparent: true, opacity: 0.55, depthWrite: false, blending: AdditiveBlending, toneMapped: false }));
+  halo.position.y = 0.11; halo.renderOrder = 9; halo.name = 'halo'; g.add(halo); // soft glow around the shade, visible from any angle
   return g;
 }

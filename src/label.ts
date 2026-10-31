@@ -41,6 +41,7 @@ export class Label {
 }
 
 /** The one panel family: rounded dark glass, soft drop shadow, hairline rim light, optional accent stripe. */
+const FLUTED = new URLSearchParams(location.search).get('ribs') !== '0';
 export function panel(g: CanvasRenderingContext2D, W: number, H: number, fill: string = C.glass, _accent?: string, alpha = 0.98): void {
   // design pass: rounded tile, soft shadow, no rim / outline / edge stripe (accent colours only mark the selected state elsewhere)
   const m = Math.min(8, H * 0.08), x = m, y = m * 0.6, w = W - 2 * m, h = H - 2 * m, r = Math.min(h / 2, Math.max(18, Math.min(44, h * 0.22)));
@@ -50,6 +51,11 @@ export function panel(g: CanvasRenderingContext2D, W: number, H: number, fill: s
   g.globalAlpha = Math.min(1, a); g.fillStyle = fill;
   g.beginPath(); g.roundRect(x, y, w, h, r); g.fill();
   g.restore();
+  if (FLUTED && fill !== C.paper) { // v11 frosted glass: subtle vertical fluted ribs, canvas-shaded (no extra draw calls / textures)
+    g.save(); g.beginPath(); g.roundRect(x, y, w, h, r); g.clip(); const step = 16;
+    for (let rx = x; rx < x + w; rx += step) { const gr = g.createLinearGradient(rx, 0, rx + step, 0);
+      gr.addColorStop(0, 'rgba(255,255,255,0.045)'); gr.addColorStop(0.45, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(10,12,16,0.07)'); g.fillStyle = gr; g.fillRect(rx, y, step, h); }
+    g.restore(); }
   void HC;
 }
 /** A pill (fully rounded): every button. `sel` = selected state (the only place gold is used). */

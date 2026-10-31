@@ -59,7 +59,8 @@ const SWIPE_OK = true;
 /** Comfort: poke panels ~44 cm away, centred ~12° below the eye line; near panels drawn at 0.75x so they stay inside the central view. */
 const VIEW_D = 0.44, VIEW_DROP = -0.44 * Math.tan((12 * Math.PI) / 180), NEAR_S = 0.75;
 const ROW_TXT = ['📋 Plan for me', '🌙 Wind down', '? Tutorial', '🪟 Curtain', '📍 Re-place', '🎯 Claim zone'];
-const ROW_W = (t: string) => { const g = document.createElement('canvas').getContext('2d')!; g.font = `600 22px ${FONT}`; return Math.max(0.11, g.measureText(t).width / 1000 + 0.04); };
+const ICON_ONLY = new Set(['? Tutorial', '🪟 Curtain', '📍 Re-place', '🎯 Claim zone']); // secondary desk pills: icon only (full name kept as the button id), keeps the row ~0.6 m
+const ROW_W = (t: string) => { if (ICON_ONLY.has(t)) return 0.058; const g = document.createElement('canvas').getContext('2d')!; g.font = `600 22px ${FONT}`; return Math.max(0.11, g.measureText(t).width / 1000 + 0.04); };
 const ROW_WS = ROW_TXT.map(ROW_W); const ROW_TOT = ROW_WS.reduce((a, b) => a + b, 0) + 0.018 * (ROW_WS.length - 1);
 const ROW_X = (i: number) => -ROW_TOT / 2 + ROW_WS.slice(0, i).reduce((a, b) => a + b + 0.018, 0) + ROW_WS[Math.min(i, ROW_WS.length - 1)] / 2; // desk button row: centred, widths fit 22px text (~24 dp at 0.76 m)
 const ROW_WI = (i: number) => ROW_WS[Math.min(i, ROW_WS.length - 1)];
@@ -1018,6 +1019,7 @@ export class MorningDeskSystem extends createSystem({
     label.draw((g, W, H) => {
       pill(g, W, H, sel);
       let size = Math.round(H * 0.46); g.font = `600 ${size}px ${FONT}`; while (g.measureText(t).width > W - H * 0.5 && size > 18) { size--; g.font = `600 ${size}px ${FONT}`; }
+      if (ICON_ONLY.has(t)) { const ic = t.split(' ')[0]; text(g, ic, W / 2, H / 2, Math.round(H * 0.56), sel ? '#24262B' : C.ink, 600, W, 'center'); return; }
       text(g, t, W / 2, H / 2, size, sel ? '#24262B' : C.ink, 600, W, 'center');
     });
   }

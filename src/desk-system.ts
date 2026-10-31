@@ -57,6 +57,7 @@ const WALL_UP = 0.16;                          // timeline sits above a real mon
 const SWIPE_OK = true;
 /** Comfort: poke panels ~44 cm away, centred ~12° below the eye line; near panels drawn at 0.75x so they stay inside the central view. */
 const VIEW_D = 0.44, VIEW_DROP = -0.44 * Math.tan((12 * Math.PI) / 180), NEAR_S = 0.75;
+const ROW_X = (i: number) => -0.29 + i * 0.145; // desk button row: one row of pills
 const SHOW_TIPS = false;
 const SHOW_RESET = new URLSearchParams(location.search).get('reset') === '1'; // Demo reset only behind &reset=1 (hidden in the default / recording view)
 const TRACK_W = 0.96, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
@@ -386,20 +387,20 @@ export class MorningDeskSystem extends createSystem({
       ['? Tutorial', () => this.startTutorial()], ...(SHOW_RESET ? [['↺ Demo reset', () => this.reset(true)] as [string, () => void]] : []),
     ];
     row.forEach(([t, fn], i) => {
-      const b = this.button(t, 0.125, fn, this.deskE); this.deskRow.push(b.label.mesh);
-      b.label.mesh.position.set(-0.24 + i * 0.135, 0.035, -0.17); b.label.mesh.rotation.x = -0.5;
+      const b = this.button(t, 0.118, fn, this.deskE, 0.044); this.deskRow.push(b.label.mesh); // one row, ~2.7 cm gaps
+      b.label.mesh.position.set(ROW_X(i), 0.035, -0.17); b.label.mesh.rotation.x = -0.5;
     });
 
     // v2 MR: tap-to-place hint + Re-place button (front-left of the desk, within reach)
     this.placeHint = new Label(0.42, 0.06); this.placeHint.mesh.visible = false; this.placeHint.mesh.position.set(0, 0.12, -0.05); this.placeHint.mesh.rotation.x = -0.35; this.desk.add(this.placeHint.mesh);
     if (!CLEAN_CAPTURE || MR_FORCED) {
-      this.replaceBtn = this.button('📍 Re-place', 0.12, () => this.replace(), this.deskE);
-      this.replaceBtn.label.mesh.position.set(0.3, 0.035, -0.17); this.replaceBtn.label.mesh.rotation.x = -0.5; this.replaceBtn.label.mesh.visible = false; // end of the desk button row: inside the level-gaze view, within reach
+      this.replaceBtn = this.button('📍 Re-place', 0.118, () => this.replace(), this.deskE, 0.044);
+      this.replaceBtn.label.mesh.position.set(ROW_X(this.deskRow.length), 0.035, -0.17); this.replaceBtn.label.mesh.rotation.x = -0.5; this.replaceBtn.label.mesh.visible = false; // end of the desk button row: inside the level-gaze view, within reach
     }
 
     if (!CLEAN_CAPTURE || MR_FORCED) {
-      this.zoneBtn = this.button('🎯 Claim zone', 0.12, () => this.toggleClaim(), this.deskE);
-      this.zoneBtn.label.mesh.position.set(0.43, 0.035, -0.17); this.zoneBtn.label.mesh.rotation.x = -0.5; this.zoneBtn.label.mesh.visible = false;
+      this.zoneBtn = this.button('🎯 Claim zone', 0.118, () => this.toggleClaim(), this.deskE, 0.044);
+      this.zoneBtn.label.mesh.position.set(ROW_X(this.deskRow.length + 1), 0.035, -0.17); this.zoneBtn.label.mesh.rotation.x = -0.5; this.zoneBtn.label.mesh.visible = false;
     }
     for (const z of this.zones) this.addZoneMarker(z);
     // look to target: soft accent glow behind the card the head is pointed at for 0.5 s
@@ -1078,26 +1079,23 @@ export class MorningDeskSystem extends createSystem({
     const over = place === 'timeline' && (!!sl?.clash || sl.end - this.s.dayStart > this.s.availableMinutes);
     it.label.draw((g, W, H) => {
       if (place === 'stack') {
-        panel(g, W, H, C.paper, C.prio[t.priority]);
-        const lines = this.wrap(g, t.title, W - 44, 18, 2);
-        lines.forEach((ln, i) => text(g, ln, 30, H * (lines.length > 1 ? 0.24 + i * 0.25 : 0.36), 18, C.ink, 600, W - 40));
-        text(g, `${dur(t.minutes)} · ${['', 'must', 'should', 'nice'][t.priority]}`, 30, H * 0.8, 15, C.mute, 500, W - 40);
+        panel(g, W, H, C.paper); dot(g, 24, H * 0.26, 7, C.prio[t.priority]);
+        const lines = this.wrap(g, t.title, W - 104, 18, 2); // clear of the ⋯ pill (top-right)
+        lines.forEach((ln, i) => text(g, ln, 40, H * (lines.length > 1 ? 0.26 + i * 0.25 : 0.36), 18, C.ink, 600, W - 104));
+        text(g, `${dur(t.minutes)} · ${['', 'must', 'should', 'nice'][t.priority]}`, 40, H * 0.8, 15, C.mute, 500, W - 50);
       } else if (place === 'timeline') {
-        panel(g, W, H, t.done ? '#1C2A22' : C.glass, over ? C.warn : C.prio[t.priority], t.done ? 0.7 : 0.95);
-        if (W < 120) {
-          // narrow block: no clipped words, just a glyph + duration (full title shows on hover)
-          // narrow block: the title word-wrapped (up to 3 lines, words shrink to fit, never just an icon) + duration
-          const words = `${t.done ? '✓ ' : ''}${t.title}`.split(' '); const fit = (w: string, mx: number) => { let f = mx; g.font = `700 ${f}px ${FONT}`; while (f > 14 && g.measureText(w).width > W - 8) { f--; g.font = `700 ${f}px ${FONT}`; } return f; };
-          const lines: string[] = []; for (const w of words) { const last = lines[lines.length - 1]; g.font = `700 22px ${FONT}`; if (last && g.measureText(`${last} ${w}`).width <= W - 8) lines[lines.length - 1] = `${last} ${w}`; else lines.push(w); }
-          const shown = lines.slice(0, 3); if (lines.length > 3) shown[2] = `${shown[2]}…`;
-          shown.forEach((ln, i) => text(g, ln, W / 2, H * (0.17 + i * 0.21), fit(ln, 22), C.ink, 700, W - 4, 'center'));
-          const ds = dur(t.minutes); let fs = 22; g.font = `600 ${fs}px ${FONT}`; while (fs > 10 && g.measureText(ds).width > W - 8) { fs--; g.font = `600 ${fs}px ${FONT}`; }
-          text(g, ds, W / 2, H * 0.85, fs, C.mute, 600, W, 'center'); // fit, never ellipsised
-        } else {
-          const lines = this.wrap(g, `${t.done ? '✓ ' : ''}${t.title}`, W - 18, 32, 2);
-          lines.forEach((ln, i) => text(g, ln, 10, H * (lines.length > 1 ? 0.22 + i * 0.27 : 0.32), 32, C.ink, 700, W - 16));
-          { const d = t.done ? `${dur(t.actual ?? t.minutes)} of ${dur(t.minutes)}` : dur(t.minutes); const full = `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${d}`; g.font = `500 27px ${FONT}`; text(g, g.measureText(full).width <= W - 16 ? full : d, 10, H * 0.82, 27, C.ink, 500, W - 16); } // never cut mid-time
-        }
+        // round tile, content centred: title in at most 2 lines (font shrinks to fit, ✓ stays on the first word), then time
+        panel(g, W, H, t.done ? '#2A3530' : C.glass, undefined, t.done ? 0.85 : 0.95);
+        if (over) dot(g, W / 2, H * 0.1, 6, C.warn); else dot(g, W / 2, H * 0.1, 6, C.prio[t.priority]);
+        const words = `${t.done ? '✓\u00A0' : ''}${t.title}`.split(' ');
+        let fs = 26, lines: string[] = [];
+        for (; fs >= 13; fs--) { g.font = `700 ${fs}px ${FONT}`; lines = []; for (const w of words) { const last = lines[lines.length - 1]; if (last !== undefined && g.measureText(`${last} ${w}`).width <= W - 16) lines[lines.length - 1] = `${last} ${w}`; else lines.push(w); }
+          if (lines.length <= 2 && lines.every((l) => g.measureText(l).width <= W - 16)) break; }
+        if (lines.length > 2) { lines = [lines[0], lines.slice(1).join(' ')]; }
+        const cy = H * 0.44; lines.forEach((ln, k) => text(g, ln, W / 2, cy + (k - (lines.length - 1) / 2) * fs * 1.15, fs, C.ink, 700, W - 12, 'center'));
+        const d = t.done ? `${dur(t.actual ?? t.minutes)}` : dur(t.minutes); const full = `${fmt(this.s.dayStart + this.slotStart(it.id))} · ${d}`;
+        let ts = 18; g.font = `600 ${ts}px ${FONT}`; const show = g.measureText(full).width <= W - 16 ? full : d; while (ts > 12 && g.measureText(show).width > W - 12) { ts--; g.font = `600 ${ts}px ${FONT}`; }
+        text(g, show, W / 2, H * 0.82, ts, C.mute, 600, W, 'center');
       } else {
         panel(g, W, H, C.glass, C.prio[t.priority], 1);
         text(g, `→ ${t.title}`, 24, H / 2, 15, C.ink, 600, W - 30);
@@ -1684,6 +1682,7 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- ⋯ task options (Skip / +15 / Tomorrow): visible pill per task, or long pinch-hold
+  private agentNear: { p: Vector3; q: Quaternion; s: number }[] | null = null;
   private dotBtns = new Map<string, Btn>(); private dotDrawn = new Map<string, string>();
   private optPanel!: Label; private optE!: Entity; private optBtns: Btn[] = []; optId = '';
   private holdOpened = ''; private holdHint!: Label; private holdHintT = -1;
@@ -1865,9 +1864,13 @@ export class MorningDeskSystem extends createSystem({
       const p0 = Math.floor(this.streakAnim.t * 12); this.streakAnim.t += delta;
       if (Math.floor(this.streakAnim.t * 12) !== p0) this.sumDraw(Math.min(1, Math.max(0, (this.streakAnim.t - 0.6) / 2.4)));
     }
-    { // the planner line comes ~25 cm forward and 1.2x larger while it waits for Keep / Undo (≈1.5x apparent size)
-      const on = !!this.pending && this.inXR(); const kk = 1 - Math.exp(-delta * 6);
-      for (const m of [this.agentPanel.mesh, this.yesBtn.label.mesh, this.noBtn.label.mesh]) { m.position.z += ((on ? 0.25 : 0.01) - m.position.z) * kk; const sc = m.scale.x + ((on ? 1.2 : 1) - m.scale.x) * kk; m.scale.setScalar(sc); } }
+    { // comfort: while a planner change waits for Keep / Undo, the panel + its column of pills come into view (44 cm, ~12° below the eye line), then go back to the wall
+      const on = !!this.pending && this.inXR(); const ms = [this.agentPanel.mesh, this.yesBtn.label.mesh, this.noBtn.label.mesh];
+      if (on && !this.agentNear) { this.agentNear = ms.map((m) => ({ p: m.position.clone(), q: m.quaternion.clone(), s: m.scale.x }));
+        const ws = this.wallScale || 1; this.placeInView(ms[0], VIEW_D, VIEW_DROP, -0.05); ms[0].scale.setScalar(0.52 / ws);
+        this.placeInView(ms[1], VIEW_D, VIEW_DROP + 0.026, 0.175); this.placeInView(ms[2], VIEW_D, VIEW_DROP - 0.03, 0.175); ms[1].scale.setScalar(0.62 / ws); ms[2].scale.setScalar(0.62 / ws);
+        document.body.dataset.agentNear = '1'; }
+      else if (!on && this.agentNear) { ms.forEach((m, i) => { const o = this.agentNear![i]; m.position.copy(o.p); m.quaternion.copy(o.q); m.scale.setScalar(o.s); }); this.agentNear = null; delete document.body.dataset.agentNear; } }
     this.persistWall();
     this.mrStep(delta);
     // steps 1-2: wake once the desk + wall are placed this session

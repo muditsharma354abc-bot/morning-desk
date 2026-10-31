@@ -4,7 +4,7 @@ export const C = {
   ink: '#D9DDE4', mute: '#A3ABB8', accent: '#FFB547', // gray text (never pure white); gold = selected state only
   sel: '#FFB547',
   // legacy names, mapped onto the same palette
-  paper: '#1F2229', // opaque panels (glass is the translucent one) sage: '#B4C6DC', sageDeep: '#B4C6DC', clay: '#B4C6DC', sky: '#8AB4F8', warn: '#E8957A',
+  paper: '#1F2229', sage: '#B4C6DC', sageDeep: '#B4C6DC', clay: '#B4C6DC', sky: '#8AB4F8', warn: '#E8957A',
   prio: { 1: '#E39B8B', 2: '#8AB4F8', 3: '#8FD1A5' } as Record<number, string>,
 };
 /** Glass alpha for panels (style reference: #14161C @ 0.75). */

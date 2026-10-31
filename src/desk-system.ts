@@ -373,7 +373,7 @@ export class MorningDeskSystem extends createSystem({
     this.agentPanel.mesh.position.set(-0.15, 0.31, 0.01); this.wall.add(this.agentPanel.mesh); // above the header: never over a real monitor below the timeline
     this.yesBtn = this.button('👍 Keep', 0.16, () => this.decide(true), this.wallE, 0.062);
     this.noBtn = this.button('👎 Undo', 0.16, () => this.decide(false), this.wallE, 0.062);
-    this.yesBtn.label.mesh.position.set(0.37, 0.345, 0.01); this.noBtn.label.mesh.position.set(0.37, 0.275, 0.01); // clear of the agent panel even at its 1.2x waiting scale
+    this.yesBtn.label.mesh.position.set(0.45, 0.345, 0.01); this.noBtn.label.mesh.position.set(0.45, 0.275, 0.01); // clear of the agent panel even at its 1.2x waiting scale
 
     // Desk buttons (reachable row at the back of the desk).
     const row: [string, () => void][] = [
@@ -926,7 +926,7 @@ export class MorningDeskSystem extends createSystem({
     if (this.agentPanel.mesh.parent !== this.wall) {
       this.wall.add(this.agentPanel.mesh); this.wall.add(this.yesBtn.label.mesh); this.wall.add(this.noBtn.label.mesh);
       this.agentPanel.mesh.position.set(-0.15, 0.31, 0.01); this.agentPanel.mesh.rotation.set(0, 0, 0);
-      this.yesBtn.label.mesh.position.set(0.37, 0.345, 0.01); this.noBtn.label.mesh.position.set(0.37, 0.275, 0.01); // clear of the agent panel even at its 1.2x waiting scale
+      this.yesBtn.label.mesh.position.set(0.45, 0.345, 0.01); this.noBtn.label.mesh.position.set(0.45, 0.275, 0.01); // clear of the agent panel even at its 1.2x waiting scale
       this.yesBtn.label.mesh.rotation.set(0, 0, 0); this.noBtn.label.mesh.rotation.set(0, 0, 0);
     }
     const boxes = this.obstacleBoxes(head, fwd); this.mr.blocked = boxes.length ? '' : 'no meshes';

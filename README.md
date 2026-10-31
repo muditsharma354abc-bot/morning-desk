@@ -37,7 +37,7 @@ Everything is placed for a seated user, with key UI close to the centre of view.
 - **In front:** the wall timeline, and the Focus panel when you're focusing.
 - **Left:** the meetings board. A meeting that a scheduled block runs into shows a **⚠ clash** warning.
 - **Right:** the pending board with tasks you haven't planned yet ("drag to plan").
-- **On the desk:** must-do task cards within reach, plus the **📋 Plan for me**, **✓ Done**, **? Tutorial** and **↺ Demo reset** buttons.
+- **On the desk:** must-do task cards within reach, plus the **📋 Plan for me**, **✓ Done**, **? Tutorial** buttons (**↺ Demo reset** only appears with `&reset=1`).
 - **Behind the timeline:** a completed strip showing how many tasks are done.
 
 ## Focus Mode
@@ -134,10 +134,14 @@ Every gesture has a button alternative, and in hands mode every button can be pr
 | Gesture | Button alternative |
 | --- | --- |
 | Pinch-drag a card to the timeline | **📅 Plan it** |
-| Flick sideways | **⏭ Skip** |
+| Flick sideways | **⏭ Skip** (in the task's **⋯** menu) |
 | Thumbs-up / thumbs-down on a planner change or the morning plan | **👍 Keep** / **👎 Undo** |
 | Thumbs-up in Focus Mode | **✓ Done** (plus **+15 min** and **✕ Exit**) |
-| Thumbs-up / thumbs-down in Wind-down | **→ Tomorrow** / **✕ Drop** |
+| Thumbs-up / thumbs-down in Wind-down | **Next** (keeps it for tomorrow) / **Drop** |
+
+Each task card has a visible **⋯** pill that opens its options: **⏭ Skip**, **+15 min**, **→ Tomorrow**, **📅 Plan it** and **✕ Close**. Pinching and holding a card opens the same menu faster, with a progress ring while you hold, and a one-time hint points this out. In Wind down, Next, Drop and Close sit in one row. A thumb swipe also advances Wind down, but that only works in the emulator so far.
+
+![The ⋯ options menu for a task in the emulator: Skip, +15 min, Tomorrow, Plan it and Close](docs/screenshots/17-task-options.png)
 
 Other buttons: **📍 Re-place**, **◐ Contrast** and **📊 7 days**. One open point: **→ Tomorrow** by poke has only been confirmed in the scripted run so far.
 
@@ -182,7 +186,7 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 
 ![The v2 MR layout in the emulator: meetings left, timeline ahead, pending right, buttons along the desk edge](docs/screenshots/05-mr-placement.png)
 
-![Wind down in the v2 MR walkthrough, step 1: done today, focus time and unfinished tasks, then decide what rolls into tomorrow (emulator; the dialog sits clear of the timeline)](docs/screenshots/06-wind-down.png)
+![Wind down in the v2 MR walkthrough, step 1: done today, focus time and unfinished tasks, then decide what rolls into tomorrow (emulator: 4 of 7 scheduled done, 25m focus, 3 unfinished, with one row of Next and Close)](docs/screenshots/06-wind-down.png)
 
 ![After leaving and re-entering XR in the emulator, the desk is back in the same spot (tested in the emulator only; untested on a headset)](docs/screenshots/16-anchor-restored.png)
 
@@ -190,7 +194,7 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 
 - **High contrast:** the **◐ Contrast** button (or `?contrast=1`) switches to a high-contrast palette.
 - **Last 7 days:** **📊 7 days** shows your progress over the past week, built only from data saved locally on this device. A fresh start shows **Start your streak today**. A **Sample week (demo data)** toggle fills the view with example days so you can see how it looks; it's off by default, held in memory only, and never mixed with or saved to your real history.
-- **Demo isolation:** demo runs use separate `morning-desk.demo.*` storage, so your real history and anchors stay untouched. Both demo walkthroughs end on **5-day streak (sample demo week)**, and Wind down closes at the end.
+- **Demo isolation:** demo runs use separate `morning-desk.demo.*` storage, so your real history and anchors stay untouched. Both demo walkthroughs end on a **Demo complete · N-day streak** pill (sample demo week), and Wind down closes at the end.
 - **Readability:** timeline text is 1.5x larger, and the flat (non-XR) view fits common Mac screen sizes.
 - **Headset checklist:** `?test=1` adds a 16-item checklist you tick by poke, with a live frame-rate readout (average and minimum over the last 10 seconds). In the desktop emulator the scene is rendered in software, so that number is not a Quest frame rate. See [docs/HEADSET_TEST_PLAN.md](docs/HEADSET_TEST_PLAN.md).
 
@@ -204,6 +208,9 @@ Placement uses standard WebXR plane detection, hit-test and anchors through IWSD
 
 ## Look and sound
 
+- Grays only (no pure black or white), rounded pills and tiles, and gold only for the selected item. Each press gives a short scale-press animation and a soft click sound made in code (no audio file). The agent and Focus panels sit about 44 cm away, about 12° below eye level (emulator-measured).
+- Wind down step 1 shows today's numbers, for example 4 of 7 scheduled done and 3 unfinished, and the close screen counts what you dropped (the demo drops 1).
+- Timeline blocks are at least 12 cm wide so titles wrap cleanly; when the start time doesn't fit, only the duration shows.
 - A dark glass palette, with the [Inter](https://github.com/rsms/inter) typeface bundled locally (SIL Open Font License).
 - Short sounds for pinch, drop, timer start and thumbs-up, synthesized by our own script (`scripts/make-sfx.mjs`) and released as CC0, in `public/sfx`.
 - Picked-up cards scale up slightly, and dropped cards snap into place with a small bounce.

@@ -16,6 +16,13 @@ const page = async () => { const p = await (await b.newContext({ ignoreHTTPSErro
   return p; };
 const sayOf = (p) => p.evaluate(() => { const els = [...document.querySelectorAll('div')].filter((d) => d.textContent.includes('autoplay demo')); return els.length ? els[els.length - 1].lastChild.textContent : ''; });
 
+function themeChecks(lg, tag) {
+  ok(/line:settled/.test(lg), `${tag}: Opening light line drew and settled`);
+  ok(/autoopen:open/.test(lg), `${tag}: curtain auto-opened with the sunrise`);
+  ok(/pull:(half|closed)/.test(lg), `${tag}: hand-pull moved the curtain (${(lg.match(/pull:[^;]*/) ?? ['none'])[0]})`);
+  ok(/state:closed\/focus/.test(lg) && /state:half\/break/.test(lg) && /state:open\/plan/.test(lg), `${tag}: curtain toggles closed/focus, half/break, open/plan (${(lg.match(/state:[^;]*/g) ?? []).join(',')})`);
+  ok(/autoclose:closed/.test(lg), `${tag}: curtain auto-closed in Renew (${(lg.match(/autoclose:[^;]*/) ?? ['none'])[0]})`);
+}
 if (THROTTLE) console.log(`CPU throttled ${THROTTLE}×`);
 // 1. full autoplay
 const ONLY = process.env.ONLY; // e.g. ONLY=pinch to re-run one check while debugging
@@ -26,6 +33,8 @@ if (!ONLY || ONLY === 'autoplay') { const p = await page(); await p.goto(BASE + 
   ok(/Demo complete/.test(say), `autoplay reached the end (${say})`);
   ok(await p.evaluate(() => document.body.dataset.wind === 'closed'), 'autoplay: Wind down closed (day closed)');
   { const lg = await p.evaluate(() => document.body.dataset.v2log ?? ''); ok(/opts:more:/.test(lg), `autoplay: ⋯ options menu opened and +15 min applied (${(lg.match(/opts:[^;]*/) ?? ['none'])[0]})`); ok(/Next\+/.test(lg), 'autoplay: Wind down advanced by the Next pill'); }
+  { const lg = await p.evaluate(() => document.body.dataset.v2log ?? ''); const ms = Number(await p.evaluate(() => document.body.dataset.autoplayMs ?? 0));
+    themeChecks(lg, 'autoplay'); console.log(`  autoplay duration (in-page, emulator): ${(ms / 1000).toFixed(0)} s`); if (!THROTTLE) ok(ms > 0 && ms < 300000, `autoplay: full run under 5 min (${(ms / 1000).toFixed(0)} s)`); }
   ok(!p.errs.length, `autoplay: no page errors ${p.errs.join(' | ')}`); await p.close(); }
 
 // 1b. Room Zones beat (&zones=1): Focus + Quick patches claimed, a card on Focus (Okay mood), look-to-target glow fires, run still ends
@@ -38,6 +47,17 @@ if (!ONLY || ONLY === 'zones') { const p = await page(); await p.goto(BASE + '?d
   ok(!!zs && zs.focus > 0, 'zones: Focus patch has a card on Okay');
   ok(!!zs && zs.gaze === 'gaze', 'zones: look-to-target glow fired on the faced card');
   ok(/Demo complete/.test(say), `zones autoplay reached the end (${say})`); ok(!p.errs.length, `zones: no page errors ${p.errs.join(' | ')}`); await p.close(); }
+
+
+// 1c. &tour=theme: only the theme + curtain beats (separate take)
+if (!ONLY || ONLY === 'tour') { const p = await page(); await p.goto(BASE + '?demo=1&autoplay=1&mr=1&hands=1&clean=1&tour=theme');
+  const T0 = Date.now(); let say = '';
+  while (Date.now() - T0 < (THROTTLE ? 900000 : 240000)) { say = await sayOf(p).catch(() => ''); if (/complete|stopped/.test(say)) break; await p.waitForTimeout(500); }
+  ok(/Theme tour complete/.test(say), `tour=theme reached the end (${say})`);
+  const lg = await p.evaluate(() => document.body.dataset.v2log ?? ''); themeChecks(lg, 'tour');
+  console.log(`  tour duration (in-page, emulator): ${(Number(await p.evaluate(() => document.body.dataset.tourMs ?? 0)) / 1000).toFixed(0)} s`);
+  ok(await p.evaluate(() => !!document.body.dataset.curtainAnchor), `tour: curtain placed (${await p.evaluate(() => document.body.dataset.curtainAnchor)})`);
+  ok(!p.errs.length, `tour: no page errors ${p.errs.join(' | ')}`); await p.close(); }
 
 // 2. hands-only
 for (const [q, want] of ONLY ? [] : [['?demo=1', 'hand'], ['?demo=1&controllers=1', 'controller']]) {

@@ -29,7 +29,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   if (!dev) { say('needs the IWER emulator (desktop browser)'); return; }
   sys.noAutoAgent = true;
   localStorage.removeItem('morning-desk.demo.mr.v2'); // deterministic (demo key only; real anchors untouched): always place from scratch
-  say('starting…');
+  say('starting…'); const apT0 = performance.now();
   dev.primaryInputMode = 'hand';
   await sys.enterXR();
   for (let i = 0; i < 50 && world.visibilityState.value === VisibilityState.NonImmersive; i++) await sleep(100);
@@ -75,6 +75,42 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     R.poseId = 'default'; pin(R, p);
   };
   const log = (x: string) => { document.body.dataset.v2log = `${document.body.dataset.v2log ?? ''}${x};`; };
+
+  // v11 theme beats (each held ~4 s). &tour=theme runs only these as a separate take.
+  const ui1 = Object.getOwnPropertySymbols(dev).map((k) => dev[k]?.devui?.inputLayer).find((x: any) => x?.playerRig);
+  const look = async (target: any, ms = 900) => { if (!ui1) return; const h = head(), p = target.getWorldPosition(new Vector3()); const d = p.sub(h);
+    const ty = Math.atan2(-d.x, -d.z), tx = Math.atan2(d.y, Math.hypot(d.x, d.z)); const fy = ui1.playerRig.rotation.y, fx = ui1.cameraRig.rotation.x;
+    await tween(ms, (k) => { ui1.playerRig.rotation.y = fy + (ty - fy) * k; ui1.cameraRig.rotation.x = fx + (tx - fx) * k; ui1.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui1.cameraRig.getWorldQuaternion(new Quaternion())); }); };
+  const lookHome = async () => { if (!ui1) return; const fy = ui1.playerRig.rotation.y, fx = ui1.cameraRig.rotation.x; await tween(800, (k) => { ui1.playerRig.rotation.y = fy * (1 - k); ui1.cameraRig.rotation.x = fx * (1 - k); ui1.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui1.cameraRig.getWorldQuaternion(new Quaternion())); }); };
+  const HOLD = 4000;
+  const beatOpening = async () => {
+    say('Opening: a light line draws down the wall'); sys.curtain.k = 1; sys.setCurtain(1); sys.line.start(); await sleep(HOLD + 300); log(`line:${document.body.dataset.line}`);
+    say('The curtain opens with the sunrise'); await look(sys.curtain.root); sys.curtain.k = 0; sys.setCurtain(1, 0.9); await sleep(HOLD); log(`autoopen:${document.body.dataset.curtain}`);
+  };
+  const pullCurtain = async (toK: number) => {
+    const c = sys.curtain, h = c.handle; const lp = (k: number): V3 => c.root.localToWorld(new Vector3(c.edgeX(k), 0, 0.04)).toArray() as V3;
+    await move(posOf(h), 900); await pinch(1, 200); await sleep(250);
+    await tween(2200, (k) => { const p = lp(c.k + 0 * k); void p; pin(R, lerp3(posOf(h) as V3, lp(toK), Math.min(1, k * 1.2))); }); await sleep(300);
+    await pinch(0, 200); await sleep(300); cur = posOf(h); log(`pull:${c.state()}`);
+  };
+  const beatCurtain = async () => {
+    await look(sys.curtain.root);
+    say('✋ Pull the curtain: grab and drag sideways'); try { await pullCurtain(0.5); } catch { log('pull:err'); } await sleep(1200);
+    const states: [number, string][] = [[0, 'Closed: Focus look, the room dims'], [0.5, 'Half open: break'], [1, 'Open: plan']];
+    for (const [k, t] of states) { if (Math.abs(sys.curtain.target - k) > 0.01) { say(`🪟 ${t}`); sys.setCurtain(k, 2.5); } else say(`🪟 ${t}`); if (k === 0) { await lookHome(); } await sleep(HOLD); log(`state:${document.body.dataset.curtain}/${document.body.dataset.look}`); if (k === 0) await look(sys.curtain.root, 700); }
+    await lookHome();
+  };
+  const beatRenew = async () => {
+    await look(sys.curtain.root); say('Renew: the curtain closes slowly'); await sleep(HOLD + 500); log(`autoclose:${document.body.dataset.curtain}`);
+    await lookHome(); say('Renew: a paper lantern on the desk, the room cool and dim'); await sleep(HOLD);
+  };
+  if (new URLSearchParams(location.search).get('tour') === 'theme') {
+    const tt0 = performance.now(); document.body.dataset.tour = 'run';
+    await beatOpening(); await lookHome(); await beatCurtain();
+    try { await press('Wind down'); } catch (e) { say(`autoplay stopped: ${(e as Error).message}`); return; }
+    await until(() => !!sys.wind, 4000); await beatRenew();
+    document.body.dataset.tour = 'done'; document.body.dataset.tourMs = String(Math.round(performance.now() - tt0)); say('Theme tour complete'); return;
+  }
   // Reel (&wake=1): Room wakes up plays, then a real poke on a mood orb (&mood=low|okay|focused, default okay) and 👍 Keep
   { const q = new URLSearchParams(location.search);
     if (q.get('wake') === '1') {
@@ -141,8 +177,8 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     }
   }
   try {
-    say('1/6  passthrough: desk on your table, plan on your wall');
-    await move(H(-0.05, -0.36, -0.22), 900); await sleep(4000);
+    say('1/6  passthrough: desk on your table, plan on your wall'); await beatOpening(); await lookHome();
+    await move(H(-0.05, -0.36, -0.22), 900); await sleep(1500);
 
     say('2/6  leave and re-enter XR: desk + wall come back in the same spot (persistent anchor)');
     { const before = posOf(sys.desk).map((v) => v.toFixed(3)).join(',');
@@ -158,6 +194,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     await sleep(500); cur = H(-0.05, -0.36, -0.22); pin(R, cur);
     for (let i = 0; i < 3 && sys.mr.desk.startsWith('restored'); i++) { await press('Re-place'); await sleep(400); } await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 6000); await sleep(3000);
 
+    await beatCurtain();
     say('4/6  pinch a block to focus · 👍 done');
     const id = sys.s.timeline.find((x: string) => !sys.s.tasks[x].done);
     const c = card(id); await move([c[0], c[1] + 0.05, c[2] + 0.12], 1300); await move(card(id), 500); await sleep(250);
@@ -173,7 +210,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       const w = sys.wind;
       if (sys.pending) { log('keep'); await thumbs(true); await sleep(600); continue; }
       if (!w) { log('open'); await press('Wind down'); await sleep(said ? 400 : 1200); continue; }
-      if (w.step === 0) { if (!said) { await sleep(3500); } log('next'); await press('Next'); continue; }
+      if (w.step === 0) { if (!said) { await beatRenew(); } log('next'); await press('Next'); continue; }
       if (w.step <= w.list.length) {
         if (said < 1) { said = 1; say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop'); }
         const keep = w.step < w.list.length; await sleep(900); log(keep ? 'up' : 'down');
@@ -186,7 +223,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     }
     await sleep(2500);
     if (document.body.dataset.wind !== 'closed') { say('autoplay stopped: wind-down did not close (retry the take)'); return; }
-    say(`Demo complete · ${sys.s.streak}-day streak`);
+    document.body.dataset.autoplayMs = String(Math.round(performance.now() - apT0)); say(`Demo complete · ${sys.s.streak}-day streak`);
   } catch (e) {
     say(`autoplay stopped: ${(e as Error).message}`);
   }

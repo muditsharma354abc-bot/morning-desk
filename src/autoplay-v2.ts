@@ -159,7 +159,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
 
     if (sys.pending) { say('4/6  the planner adjusted the day · 👍 keep'); await thumbs(true); await until(() => !sys.pending, 3000); await sleep(1200); }
     say('5/6  🌙 Wind down: today in real numbers');
-    // state-driven so a missed poke just retries (deterministic outcome: must-dos kept, the rest dropped)
+    // state-driven so a missed poke just retries (deterministic outcome: all but the last kept, 1 dropped)
     let said = 0; const t0 = performance.now();
     while (document.body.dataset.wind !== 'closed' && performance.now() - t0 < 360000) {
       const w = sys.wind;
@@ -168,9 +168,9 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       if (w.step === 0) { if (!said) { await sleep(3500); } log('next'); await press('Next'); continue; }
       if (w.step <= w.list.length) {
         if (said < 1) { said = 1; say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop'); }
-        const t = sys.s.tasks[w.list[w.step - 1]]; await sleep(900); log(t.priority === 1 ? 'up' : 'down');
-        const at = w.step; await thumbs(t.priority === 1); // must-do → keep · others → drop
-        if (sys.wind && sys.wind.step === at) { log('poke'); await press(t.priority === 1 ? 'Tomorrow' : 'Drop'); } // gesture missed (slow/fast frame rate): same choice by poke
+        const keep = w.step < w.list.length; await sleep(900); log(keep ? 'up' : 'down');
+        const at = w.step; await thumbs(keep); // deterministic demo: keep all but the last unfinished block → 1 dropped
+        if (sys.wind && sys.wind.step === at) { log('poke'); await press(keep ? 'Tomorrow' : 'Drop'); } // gesture missed (slow/fast frame rate): same choice by poke
         await until(() => sys.thumb.dir === 0, 1500); await sleep(300); // let the thumb gesture settle so a late 👎 can't hit the next step (👎 on Close day = Back)
         continue;
       }

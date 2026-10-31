@@ -97,7 +97,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
         R.setPin({ anchor: 'index-tip', target: off(0.1) }); cur = off(0.1);
         if (!(await until(() => !sys.wake.moodShown(), 6000))) { say('autoplay stopped: mood check did not close'); return; }
         await until(() => !!sys.pending || document.body.dataset.morning === '0', 15000); await sleep(2200);
-        if (sys.pending) { say('👍 Keep'); try { await press('Keep'); } catch (e) { say(`autoplay stopped: ${(e as Error).message}`); return; } await sleep(1500); } }
+        if (sys.pending) { await sleep(4800); say('👍 Keep'); /* the planner change stays on screen ~7 s before Keep */ try { await press('Keep'); } catch (e) { say(`autoplay stopped: ${(e as Error).message}`); return; } await sleep(1500); } }
     } }
   const card = (id: string) => posOf(sys.items.get(id).label.mesh);
   { // ⋯ task options: poke a Pending card's ⋯ pill, then +15 min in the one-column menu
@@ -117,6 +117,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       say('🎯 Claim a Focus zone'); await turn(900, Math.atan2(-d.x, -d.z), Math.atan2(d.y, Math.hypot(d.x, d.z)));
       await lean(700, lean0.clone().lerp(sys.desk.localToWorld(new Vector3(-0.3, 0.2, 0.0)), 0.5)); // lean in so patch + card read on camera
       sys.claimAt([-0.3, 0.01, 0.0]); document.body.dataset.zoneLand = 'fly'; await sleep(1300);
+      { const fid = sys.s.stack.find((x: string) => sys.zoneTarget(x, new Vector3(), new (sys.desk.quaternion.constructor)()) && sys.lastZone === 'focus'); if (fid) sys.landGlow(fid, 2800); } // the landed card glows gold (selected) ~2 s
       say('🎯 Focus zone: the long card lands on the patch'); document.body.dataset.zoneLand = 'hold'; await sleep(600); await shotHold(); await sleep(1400); delete document.body.dataset.zoneLand;
       await lean(700, null); await turn(800, home.y, home.x); }
     say('🎯 Claim a Quick zone'); sys.claimAt([0.42, 0.01, -0.1]); await sleep(2600);
@@ -125,13 +126,16 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     const id = (quick.length >= 2 ? quick[0] : undefined) ?? sys.s.stack.find(inZone('focus')) ?? sys.s.stack.find((x: string) => sys.items.get(x)?.label.mesh.visible);
     if (id) {
       // turn the emulated head (head gaze, not eye tracking) to the card, hold, turn back
-      const m = sys.items.get(id).label.mesh; const w = m.getWorldPosition(new Vector3()); const h = head(); const d = w.sub(h);
+      const m = sys.items.get(id).label.mesh; const w = m.getWorldPosition(new Vector3()); const hp = dpos(); const tl = w.clone(); tl.y += 0.12; const hEnd = hp.clone().lerp(tl, 0.4); const d = w.clone().sub(head().add(hEnd.clone().sub(hp))); // aim from where the lean ends (the head moves while turning)
       const ui = Object.getOwnPropertySymbols(dev).map((k) => dev[k]?.devui?.inputLayer).find((x: any) => x?.playerRig);
       const y0 = ui?.playerRig.rotation.y ?? 0, x0 = ui?.cameraRig.rotation.x ?? 0;
       const y1 = Math.atan2(-d.x, -d.z), x1 = Math.atan2(d.y, Math.hypot(d.x, d.z));
       const aim = (k: number, fy: number, ty: number, fx: number, tx: number) => { if (!ui) return; ui.playerRig.rotation.y = fy + (ty - fy) * k; ui.cameraRig.rotation.x = fx + (tx - fx) * k; ui.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui.cameraRig.getWorldQuaternion(new Quaternion())); };
       say('👀 Look to target: the card you face glows');
-      const hp = dpos(); await Promise.all([tween(900, (k) => aim(k, y0, y1, x0, x1)), (async () => { const t = m.getWorldPosition(new Vector3()); t.y += 0.12; await lean(900, hp.clone().lerp(t, 0.4)); })()]); await until(() => document.body.dataset.gaze === id, 4000); log(`gaze${document.body.dataset.gaze === id ? '+' : '-'}`); document.body.dataset.zonesBeat = document.body.dataset.gaze === id ? 'gaze' : 'nogaze'; await sleep(600); await shotHold(); await sleep(1600); // glow held ~2 s on the faced card (wall-clock)
+      await Promise.all([tween(900, (k) => aim(k, y0, y1, x0, x1)), lean(900, hEnd)]);
+      for (let fix = 0; fix < 3 && !(await until(() => document.body.dataset.gaze === id, 1500)); fix++) { // correction: re-aim at the card centre from the current head
+        const d2 = m.getWorldPosition(new Vector3()).sub(head()); const yy = ui?.playerRig.rotation.y ?? 0, xx = ui?.cameraRig.rotation.x ?? 0; await tween(300, (k) => aim(k, yy, Math.atan2(-d2.x, -d2.z), xx, Math.atan2(d2.y, Math.hypot(d2.x, d2.z)))); }
+      await until(() => document.body.dataset.gaze === id, 2000); log(`gaze${document.body.dataset.gaze === id ? '+' : '-'}`); document.body.dataset.zonesBeat = document.body.dataset.gaze === id ? 'gaze' : 'nogaze'; await sleep(600); await shotHold(); await sleep(1600); // glow held ~2 s on the faced card (wall-clock)
       await Promise.all([tween(900, (k) => aim(k, y1, y0, x1, x0)), lean(900, hp)]);
     }
   }

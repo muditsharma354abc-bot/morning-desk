@@ -307,6 +307,10 @@ export class MorningDeskSystem extends createSystem({
     if (id !== this.gazeCand) { this.gazeCand = id; this.gazeT = 0; } else this.gazeT += dt;
     this.gazeId = id && this.gazeT >= 0.5 ? id : '';
     const it = this.gazeId ? this.items.get(this.gazeId) : undefined;
+    const lg = !it && this.landG.id && performance.now() < this.landG.until ? this.items.get(this.landG.id) : undefined;
+    if (lg) { const m = lg.label.mesh; const g = this.gazeGlow; g.visible = true; g.position.copy(m.position).add(new Vector3(0, 0, -0.002).applyQuaternion(m.quaternion)); g.quaternion.copy(m.quaternion);
+      g.scale.set(lg.label.w + 0.05, lg.label.h + 0.05, 1); (g.material as MeshBasicMaterial).color.set(C.sel); (g.material as MeshBasicMaterial).opacity = 0.8; document.body.dataset.gaze = this.gazeId; return; } // just landed = selected: gold
+    (this.gazeGlow.material as MeshBasicMaterial).color.set('#C9D3E0');
     this.gazeGlow.visible = !!it;
     if (it) { const m = it.label.mesh; const g = this.gazeGlow; m.updateMatrixWorld();
       g.position.copy(m.position).add(new Vector3(0, 0, -0.002).applyQuaternion(m.quaternion)); g.quaternion.copy(m.quaternion);
@@ -1543,7 +1547,7 @@ export class MorningDeskSystem extends createSystem({
     this.agentPanel.draw((g, W, H) => {
       panel(g, W, H, C.paper, C.sky, 1);
       text(g, show ? '📋 Your agent changed your day' : '📋 Planner', 34, 30, 24, C.sageDeep, 700);
-      para(g, this.agentMsg || AGENT_LINE, 34, 56, show || this.agentMsg.length < 70 ? 27 : 23, W - 50);
+      para(g, this.agentMsg || AGENT_LINE, 34, 54, show || this.agentMsg.length < 70 ? 31 : 26, W - 50);
     });
     this.redrawHeader();
   }
@@ -1682,6 +1686,9 @@ export class MorningDeskSystem extends createSystem({
   }
 
   // ---------------------------------------------------------------- ⋯ task options (Skip / +15 / Tomorrow): visible pill per task, or long pinch-hold
+  private landG = { id: '', until: 0 };
+  /** A card that just landed on a zone is the selected one: gold rim for `ms`. */
+  landGlow(id: string, ms: number): void { this.landG = { id, until: performance.now() + ms }; }
   private agentNear: { p: Vector3; q: Quaternion; s: number }[] | null = null;
   private dotBtns = new Map<string, Btn>(); private dotDrawn = new Map<string, string>();
   private optPanel!: Label; private optE!: Entity; private optBtns: Btn[] = []; optId = '';

@@ -44,7 +44,7 @@ export const ZONE_CARDS = 4;
 export function zoneSlot(z: Zone, i: number, out: Vector3, q: Quaternion): void {
   const col = i % 2, row = Math.floor(i / 2);
   const flat = z.surface === 'flat';
-  out.set((col - 0.5) * 0.17, flat ? 0.02 + row * 0.012 : 0.03 - row * 0.1, flat ? -0.035 + row * 0.1 : 0.01);
+  out.set((col - 0.5) * 0.2, flat ? 0.02 + row * 0.012 : 0.03 - row * 0.12, flat ? -0.04 + row * 0.12 : 0.01); // ~5 cm between cards: a highlight never covers a neighbour
   q.setFromAxisAngle(new Vector3(0, 1, 0), z.yaw);
   if (flat) q.multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -0.95)); // lying on the patch, tilted up to the user
   out.applyQuaternion(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), z.yaw)).add(new Vector3(...z.p));

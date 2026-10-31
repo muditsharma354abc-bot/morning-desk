@@ -422,12 +422,12 @@ export class MorningDeskSystem extends createSystem({
       // button alternatives to pinch-drag (plan it) and flick (skip)
       ['📅 Plan it', 0.02, 0.1, () => this.planFromFocus()], ['⏭ Skip', 0.11, 0.07, () => this.skipFromFocus()],
     ];
-    if (TOSS) fb.push(['🗑 Toss', -0.075, 0.08, () => this.tossFromFocus()]); // button alternative to crumple + throw
     for (const [t, x, w, fn] of fb) {
-      const b = this.button(t, w, fn, this.focusE); b.label.mesh.position.set(x, /Exit|Plan it|Skip|Toss/.test(t) ? 0.11 : -0.105, 0.004); this.focusBtns.push(b);
+      const b = this.button(t, w, fn, this.focusE); b.label.mesh.position.set(x, /Exit|Plan it|Skip/.test(t) ? 0.11 : -0.105, 0.004); this.focusBtns.push(b);
     }
     for (const i of [4, 5, 6]) this.focusBtns[i].label.resize(i === 5 ? 0.1 : 0.07, 0.034);
-    if (this.focusBtns[7]) this.focusBtns[7].label.resize(0.08, 0.034);
+    // step 5 button alternative to crumple + throw (built at its final size: Label.resize clears the canvas)
+    if (TOSS) { const b = this.button('🗑 Toss', 0.1, () => this.tossFromFocus(), this.focusE, 0.034); b.label.mesh.position.set(0, -0.155, 0.004); this.focusBtns.push(b); }
     // passthrough dimmer: a dark shell around the head while focusing
     this.dim = new Mesh(new SphereGeometry(2.5, 24, 16), new MeshBasicMaterial({ color: '#0b0f0d', transparent: true, opacity: 0, side: BackSide, depthWrite: false }));
     this.dim.renderOrder = -1; this.dim.visible = false; scene.add(this.dim);

@@ -54,7 +54,7 @@ const DESK_FWD = 0.4, DESK_DOWN = 0.26;      // card spread in easy reach
 const WALL_FWD = 1.1;
 const WALL_UP = 0.16;                          // timeline sits above a real monitor (seated eye line ≈ monitor top)                         // fallback timeline distance, eye height
 const SHOW_RESET = new URLSearchParams(location.search).get('reset') === '1'; // Demo reset only behind &reset=1 (hidden in the default / recording view)
-const TRACK_W = 1.4, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
+const TRACK_W = 0.96, TRACK_H = 0.18;        // taller blocks: every block carries a readable title         // ~0.96 m at 1.1 m ≈ ±24°
 const CARD_W = 0.16, CARD_H = 0.09;
 /** Small icon for icon-only (short) timeline blocks. */
 function iconFor(title: string): string {
@@ -363,10 +363,7 @@ export class MorningDeskSystem extends createSystem({
     track.draw((g, W, H) => {
       panel(g, W, H, '#ffffff', undefined, 0.12);
       g.strokeStyle = '#ffffff88'; g.lineWidth = 2;
-      for (let h = 0; h <= this.s.availableMinutes / 60; h++) {
-        const x = 20 + (h * 60 / this.s.availableMinutes) * (W - 40);
-        g.beginPath(); g.moveTo(x, 10); g.lineTo(x, H - 10); g.stroke();
-      }
+      // no hour gridlines: blocks keep a minimum width (xAt), so the track is time-ordered, not to scale
     });
     track.mesh.position.z = -0.004; this.wall.add(track.mesh);
     this.marker = new Mesh(new CylinderGeometry(0.004, 0.004, TRACK_H + 0.05, 8), new MeshStandardMaterial({ color: C.sageDeep, emissive: new Color(C.sage), emissiveIntensity: 0.6 }));
@@ -826,11 +823,12 @@ export class MorningDeskSystem extends createSystem({
     for (const x of [a, b]) { (x.label.mesh.material as MeshBasicMaterial).depthTest = false; x.label.mesh.renderOrder = 11; }
     this.windBtns = [a, b];
   }
-  /** Unfinished = scheduled today but not done, plus anything already parked for tomorrow. Real state only. */
+  /** Unfinished = scheduled today but not done (so done + unfinished = scheduled). Real state only. */
   private unfinished(): string[] {
-    const s = this.s; const seen = new Set<string>();
-    return [...s.timeline, ...s.tomorrow].filter((id) => s.tasks[id] && !s.tasks[id].done && !seen.has(id) && (seen.add(id), true));
+    const s = this.s; return s.timeline.filter((id) => s.tasks[id] && !s.tasks[id].done);
   }
+  /** Already parked for tomorrow (by you or the planner): carried over without asking again. */
+  private parked(): string[] { const s = this.s; return s.tomorrow.filter((id) => s.tasks[id] && !s.tasks[id].done && !s.timeline.includes(id)); }
   openWindDown(): void {
     if (this.focus) this.endFocus(false); this.summary.mesh.visible = false; this.pending = null;
     this.wind = { step: 0, list: this.unfinished(), kept: [], dropped: [] };
@@ -854,10 +852,10 @@ export class MorningDeskSystem extends createSystem({
       s.timeline = s.timeline.filter((x) => x !== id); s.tomorrow = s.tomorrow.filter((x) => x !== id); s.stack = s.stack.filter((x) => x !== id);
       delete s.tasks[id];
     }
-    s.carry = [...w.kept];
+    const parked = this.parked(); s.carry = [...w.kept, ...parked.filter((x) => !w.kept.includes(x))];
     const before = s.streak; completeDay(s); this.streakAnim = { t: 9, from: before, to: s.streak }; save(s); sfx.done();
     this.closeWind(); this.summary.mesh.visible = false; this.detailId = ''; this.syncItems(); // nothing from wind-down stays open behind the end banner
-    this.agentMsg = `🌙 Day closed. ${w.kept.length ? `Tomorrow starts with ${w.kept.length} task${w.kept.length > 1 ? 's' : ''}.` : 'Nothing carried over.'} ${s.streak}-day streak.`;
+    this.agentMsg = `🌙 Day closed. ${s.carry.length ? `Tomorrow starts with ${s.carry.length} task${s.carry.length > 1 ? 's' : ''}.` : 'Nothing carried over.'} ${s.streak}-day streak.`;
     document.body.dataset.wind = 'closed'; this.redrawAll();
   }
   private drawWind(): void {
@@ -886,7 +884,7 @@ export class MorningDeskSystem extends createSystem({
         text(g, `${dur(t.minutes)} · ${['', 'must do', 'should do', 'nice to have'][t.priority]}`, 28, 112, 17, C.sageDeep, 600, W - 56);
         text(g, 'Roll into tomorrow?  👍 keep · 👎 drop', 28, 146, 16, C.mute, 500, W - 56);
       } else {
-        const titles = w.kept.map((id) => s.tasks[id]?.title).filter(Boolean);
+        const titles = [...w.kept, ...this.parked().filter((x) => !w.kept.includes(x))].map((id) => s.tasks[id]?.title).filter(Boolean);
         text(g, titles.length ? 'Tomorrow starts with:' : 'Tomorrow starts fresh.', 28, 70, 18, C.ink, 700, W - 56);
         titles.slice(0, 3).forEach((t, i) => text(g, `${i + 1}. ${t}`, 38, 98 + i * 24, 17, C.ink, 500, W - 70));
         if (titles.length > 3) text(g, `+${titles.length - 3} more`, 38, 98 + 3 * 24, 15, C.mute, 500);
@@ -999,14 +997,33 @@ export class MorningDeskSystem extends createSystem({
   private headCam() { return this.inXR() ? this.world.renderer.xr.getCamera() : this.world.camera; }
   private inXR(): boolean { return this.world.visibilityState.value !== VisibilityState.NonImmersive; }
   private pxPerM(): number { return TRACK_W / this.s.availableMinutes; }
+  /** Timeline x for a minute offset from dayStart. Blocks and meetings get at least MIN_BLOCK m so titles and times never break
+   *  mid-phrase; the rest of the day shrinks to make room (piecewise-linear, still in time order). */
+  private xMapKey = ''; private xMapPts: [number, number][] = [];
+  private xAt(m: number): number {
+    const s = this.s; const L = layout(s); const ms = s.meetings ?? [];
+    const iv = [...Object.values(L.slots).map((x) => [x.start - s.dayStart, x.end - s.dayStart]), ...ms.map((x) => [x.start - s.dayStart, x.start + x.minutes - s.dayStart])]
+      .filter(([a, b]) => b > a).sort((a, b) => a[0] - b[0]);
+    const key = JSON.stringify(iv) + s.availableMinutes;
+    if (key !== this.xMapKey) {
+      this.xMapKey = key; const MIN_BLOCK = 0.12; const ppm = this.pxPerM(); const pts: [number, number][] = [[0, 0]]; let t = 0, x = 0;
+      for (const [a, b] of iv) { if (b <= t) continue; const a2 = Math.max(a, t); x += (a2 - t) * ppm; pts.push([a2, x]); x += Math.max(MIN_BLOCK, (b - a2) * ppm); pts.push([b, x]); t = b; }
+      const end = Math.max(t, s.availableMinutes); x += (end - t) * ppm; pts.push([end, x]);
+      const f = x > TRACK_W ? TRACK_W / x : 1; this.xMapPts = pts.map(([tt, xx]) => [tt, xx * f]);
+      if (this.meetingLabels?.length) queueMicrotask(() => this.redrawMeetings());
+    }
+    const P = this.xMapPts; if (m <= P[0][0]) return -TRACK_W / 2 + P[0][1];
+    for (let i = 1; i < P.length; i++) if (m <= P[i][0]) { const [t0, x0] = P[i - 1], [t1, x1] = P[i]; return -TRACK_W / 2 + (t1 > t0 ? x0 + (x1 - x0) * (m - t0) / (t1 - t0) : x1); }
+    return -TRACK_W / 2 + P[P.length - 1][1];
+  }
   /** Target world pose for each item, derived only from state → moves animate automatically. */
   private target(it: Item, out: Vector3, outQ: Quaternion): { w: number; h: number; visible: boolean } {
     const z = this.zoneTarget(it.id, out, outQ); if (z) return z;
     const s = this.s; const place = this.placeOf(it.id);
     if (place === 'timeline') {
       const sl = layout(s).slots[it.id]; const start = sl.start - s.dayStart;
-      const w = Math.max(0.03, (sl.end - sl.start) * this.pxPerM() - 0.006);
-      out.set(-TRACK_W / 2 + start * this.pxPerM() + w / 2 + 0.003, 0, 0.006);
+      const x0 = this.xAt(start), x1 = this.xAt(sl.end - s.dayStart); const w = Math.max(0.03, x1 - x0 - 0.006);
+      out.set(x0 + w / 2 + 0.003, 0, 0.006);
       this.wall.localToWorld(out); this.wall.getWorldQuaternion(outQ);
       return { w: w * this.wallScale, h: TRACK_H * this.wallScale, visible: true };
     }
@@ -1097,7 +1114,7 @@ export class MorningDeskSystem extends createSystem({
     const sl = layout(this.s).slots; let idx = list.length;
     for (let i = 0; i < list.length; i++) {
       const b = sl[list[i]]; if (!b) continue;
-      const cx = -TRACK_W / 2 + ((b.start + b.end) / 2 - this.s.dayStart) * this.pxPerM();
+      const cx = (this.xAt(b.start - this.s.dayStart) + this.xAt(b.end - this.s.dayStart)) / 2;
       if (hit.x < cx) { idx = i; break; }
     }
     return idx;
@@ -1107,7 +1124,7 @@ export class MorningDeskSystem extends createSystem({
     const list = this.s.timeline.filter((x) => x !== this.drag?.id && x !== this.mouseDrag?.id);
     const sl = layout(this.s).slots; const ref = list[idx] ?? list[idx - 1];
     const m = !ref ? 0 : (list[idx] ? sl[ref].start : sl[ref].end) - this.s.dayStart;
-    this.marker.position.set(-TRACK_W / 2 + m * this.pxPerM(), 0, 0.012);
+    this.marker.position.set(this.xAt(m), 0, 0.012);
   }
   private release(id: string, p: Vector3, lateralSpeed: number, moved: number, held: number, flick = false): void {
     this.marker.visible = false;
@@ -1481,10 +1498,10 @@ export class MorningDeskSystem extends createSystem({
     const ms = this.s.meetings ?? [];
     while (this.meetingLabels.length > ms.length) this.wall.remove(this.meetingLabels.pop()!.mesh);
     ms.forEach((m, i) => {
-      const w = m.minutes * this.pxPerM() - 0.006;
+      const xa = this.xAt(m.start - this.s.dayStart), w = this.xAt(m.start + m.minutes - this.s.dayStart) - xa - 0.006;
       const l = this.meetingLabels[i] ?? (this.meetingLabels[i] = new Label(w, TRACK_H + 0.02)); this.wall.add(l.mesh);
       l.resize(w, TRACK_H + 0.02);
-      l.mesh.position.set(-TRACK_W / 2 + (m.start - this.s.dayStart) * this.pxPerM() + w / 2 + 0.003, 0, 0.002);
+      l.mesh.position.set(xa + w / 2 + 0.003, 0, 0.002);
       l.draw((g, W, H) => {
         g.fillStyle = '#2B3A55'; g.globalAlpha = 0.9; g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, 14); g.fill(); g.globalAlpha = 1;
         text(g, '📅', W / 2, H * 0.3, 26, '#fff', 400, W, 'center');

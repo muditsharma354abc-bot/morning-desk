@@ -1887,8 +1887,8 @@ export class MorningDeskSystem extends createSystem({
     { // comfort: while a planner change waits for Keep / Undo, the panel + its column of pills come into view (44 cm, ~12° below the eye line), then go back to the wall
       const on = !!this.pending && this.inXR(); const ms = [this.agentPanel.mesh, this.yesBtn.label.mesh, this.noBtn.label.mesh];
       if (on && !this.agentNear) { this.agentNear = ms.map((m) => ({ p: m.position.clone(), q: m.quaternion.clone(), s: m.scale.x }));
-        const ws = this.wallScale || 1; this.placeInView(ms[0], VIEW_D, VIEW_DROP, -0.05); ms[0].scale.setScalar(0.52 / ws);
-        this.placeInView(ms[1], VIEW_D, VIEW_DROP + 0.026, 0.175); this.placeInView(ms[2], VIEW_D, VIEW_DROP - 0.03, 0.175); ms[1].scale.setScalar(0.62 / ws); ms[2].scale.setScalar(0.62 / ws);
+        const ws = this.wallScale || 1; this.placeInView(ms[0], VIEW_D, VIEW_DROP + 0.045, 0); ms[0].scale.setScalar(0.52 / ws);
+        this.placeInView(ms[1], VIEW_D, VIEW_DROP - 0.035, -0.065); this.placeInView(ms[2], VIEW_D, VIEW_DROP - 0.035, 0.065); // Keep / Undo: one row under the panel ms[1].scale.setScalar(0.62 / ws); ms[2].scale.setScalar(0.62 / ws);
         for (const m of ms) { (m.material as MeshBasicMaterial).depthTest = false; m.renderOrder = 40; } document.body.dataset.agentNear = '1'; }
       else if (!on && this.agentNear) { ms.forEach((m, i) => { const o = this.agentNear![i]; m.position.copy(o.p); m.quaternion.copy(o.q); m.scale.setScalar(o.s); }); for (const m of ms) { (m.material as MeshBasicMaterial).depthTest = true; m.renderOrder = 0; } this.agentNear = null; delete document.body.dataset.agentNear; } }
     this.persistWall();

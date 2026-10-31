@@ -48,7 +48,8 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   const move = async (to: V3, ms = 1000) => { const from = cur; await tween(ms, (k) => pin(R, lerp3(from, to, k))); cur = to; };
   const pinch = async (v: number, ms = 120) => { const from = R.pinchValue ?? 0; await tween(ms, (k) => R.updatePinchValue(from + (v - from) * k)); };
   const posOf = (o: any): V3 => o.getWorldPosition(new Vector3()).toArray() as V3;
-  const button = (name: string) => [...sys.buttons.values()].find((b: any) => b.label.mesh.visible && b.label.mesh.userData.btn?.includes(name));
+  const shown = (m: any) => { for (let o = m; o; o = o.parent) if (!o.visible) return false; return true; }; // the mesh and every parent (Focus '+15 min' hides with its panel)
+  const button = (name: string) => [...sys.buttons.values()].find((b: any) => shown(b.label.mesh) && b.label.mesh.userData.btn?.includes(name));
   const snap = () => JSON.stringify([!!sys.focus, sys.mr.phase, sys.wind?.step ?? -1, sys.s.streak, sys.agentMsg, document.body.dataset.wind ?? '', sys.optId, document.body.dataset.optDone ?? '']);
   const press = async (name: string) => {
     let b = button(name); const tw0 = performance.now(); // retry: at a low frame rate boards/buttons can take a while to reappear

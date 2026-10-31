@@ -49,7 +49,7 @@ if (!ONLY || ONLY === 'toss') { const p = await page(); await p.goto(BASE + '?de
   ok(!!ts && ts.beat === 'hand', `toss: card crumpled and thrown into the bin by hand (${JSON.stringify(ts)})`);
   ok(!!ts && ts.dropped.length === 1 && !ts.inLists && ts.baskets === 1, 'toss: task is dropped in state (out of every list), 1 basket today');
   ok(wb === 1, `toss: basket still counted when Wind down opens (${wb})`);
-  ok(/v2 demo complete/.test(say), `toss autoplay reached the end (${say})`); ok(!p.errs.length, `toss: no page errors ${p.errs.join(' | ')}`); await p.close(); }
+  { const lg = /v2 demo complete/.test(say) ? '' : await p.evaluate(() => `${document.body.dataset.v2log} wind=${window.__mdTest?.wind?.step}/${window.__mdTest?.wind?.list.length} dw=${document.body.dataset.wind}`).catch(() => ''); ok(/v2 demo complete/.test(say), `toss autoplay reached the end (${say}) ${lg}`); } ok(!p.errs.length, `toss: no page errors ${p.errs.join(' | ')}`); await p.close(); }
 // 1d. 🗑 Toss button fallback (hands-only poke on the Focus panel) + no bin without the flag
 if (!ONLY || ONLY === 'tossbtn') { for (const q of ['?demo=1&mr=1&hands=1&wake=0&toss=1', '?demo=1&mr=1&hands=1&wake=0']) { const p = await page(); await p.goto(BASE + q);
   await p.waitForFunction(() => !!window.__mdTest, null, { timeout: 90000 }).catch(() => {});

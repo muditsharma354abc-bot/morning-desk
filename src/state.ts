@@ -41,6 +41,8 @@ export interface PlanState {
   zoneOf?: Record<string, string>; // step 4: task id → claimed zone id (card dropped on a zone)
   agentDay?: string;       // step 3: morning agent ran on this day
   windAutoDay?: string;    // step 3: evening Wind down opened itself on this day
+  dropped?: string[];      // step 5: tasks tossed into the bin today (out of every list; deleted when the day closes)
+  baskets?: { d: string; n: number }; // step 5: baskets made on day d
 }
 export const IS_DEMO = new URLSearchParams(location.search).has('demo');
 // demo runs keep their own key so they never overwrite (or mark the tutorial seen for) a real visit

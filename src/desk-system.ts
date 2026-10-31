@@ -9,6 +9,7 @@ import { PlanChange, RulePlanner } from './planner.js';
 import { Wake } from './wake.js';
 import { loadZones, saveZones, Zone, ZoneKind, ZONE_NAME, ZONE_CARDS, zoneMarker, zoneSlot, zoneWants, PATCH_H } from './zones.js';
 import { Raycaster } from '@iwsdk/core';
+import { Toss, TOSS, CRUMPLE_S } from './toss.js';
 import { C, FONT, HC, setContrast, sfx, unlockAudio } from './style.js';
 import { MOODS, Mood, today, clearStorage, clone, tutorialState, completeDay, demoState, dur, fmt, IS_DEMO, lastWeek, layout, load, PlanState, save, scheduledMinutes } from './state.js';
 import { AdditiveBlending, BackSide, DepthOccludable, MeshBasicMaterial, OcclusionShadersMode } from '@iwsdk/core';
@@ -100,6 +101,8 @@ export class MorningDeskSystem extends createSystem({
   private placeDelay = 0;
   private tutStep = -1;
   private placed = false; private wasXR = false; private windDimmed = false;
+  // step 5 (&toss=1): crumple a held card, throw it into the floor bin → task 'dropped'
+  toss: Toss | null = TOSS ? new Toss() : null;
   private drag: { id: string; t0: number; p0: Vector3; hist: { t: number; p: Vector3 }[] } | null = null;
   private mouseDrag: { id: string; depth: number; px: { t: number; x: number; y: number }[]; maxPx: number } | null = null;
   private tmp = new Vector3(); private tmp2 = new Vector3(); private q = new Quaternion();
@@ -419,13 +422,16 @@ export class MorningDeskSystem extends createSystem({
       // button alternatives to pinch-drag (plan it) and flick (skip)
       ['📅 Plan it', 0.02, 0.1, () => this.planFromFocus()], ['⏭ Skip', 0.11, 0.07, () => this.skipFromFocus()],
     ];
+    if (TOSS) fb.push(['🗑 Toss', -0.075, 0.08, () => this.tossFromFocus()]); // button alternative to crumple + throw
     for (const [t, x, w, fn] of fb) {
-      const b = this.button(t, w, fn, this.focusE); b.label.mesh.position.set(x, /Exit|Plan it|Skip/.test(t) ? 0.11 : -0.105, 0.004); this.focusBtns.push(b);
+      const b = this.button(t, w, fn, this.focusE); b.label.mesh.position.set(x, /Exit|Plan it|Skip|Toss/.test(t) ? 0.11 : -0.105, 0.004); this.focusBtns.push(b);
     }
     for (const i of [4, 5, 6]) this.focusBtns[i].label.resize(i === 5 ? 0.1 : 0.07, 0.034);
+    if (this.focusBtns[7]) this.focusBtns[7].label.resize(0.08, 0.034);
     // passthrough dimmer: a dark shell around the head while focusing
     this.dim = new Mesh(new SphereGeometry(2.5, 24, 16), new MeshBasicMaterial({ color: '#0b0f0d', transparent: true, opacity: 0, side: BackSide, depthWrite: false }));
     this.dim.renderOrder = -1; this.dim.visible = false; scene.add(this.dim);
+    if (this.toss) { scene.add(this.toss.bin); scene.add(this.toss.ball); }
     this.summary = new Label(0.54, 0.44); this.summary.mesh.visible = false;
     // draw the summary over desk labels behind it (the streak tag must not show through)
     (this.summary.mesh.material as MeshBasicMaterial).depthTest = false; this.summary.mesh.renderOrder = 10;
@@ -853,6 +859,8 @@ export class MorningDeskSystem extends createSystem({
       s.timeline = s.timeline.filter((x) => x !== id); s.tomorrow = s.tomorrow.filter((x) => x !== id); s.stack = s.stack.filter((x) => x !== id);
       delete s.tasks[id];
     }
+    for (const id of s.dropped ?? []) { s.timeline = s.timeline.filter((x) => x !== id); s.stack = s.stack.filter((x) => x !== id); delete s.tasks[id]; }
+    s.dropped = [];
     s.carry = [...w.kept];
     const before = s.streak; completeDay(s); this.streakAnim = { t: 9, from: before, to: s.streak }; save(s); sfx.done();
     this.closeWind(); this.summary.mesh.visible = false; this.detailId = ''; this.syncItems(); // nothing from wind-down stays open behind the end banner
@@ -877,8 +885,9 @@ export class MorningDeskSystem extends createSystem({
           ['Focus time', dur(s.focusMinutes ?? 0)],
           ['Unfinished', n ? `${n} task${n > 1 ? 's' : ''}` : 'none'],
         ];
+        if (TOSS) lines.push(['Baskets today', `🏀 ${this.basketsToday()}`]);
         lines.forEach(([k, v], i) => { text(g, k, 28, 72 + i * 28, 18, C.mute, 600); text(g, v, 170, 72 + i * 28, 18, C.ink, 700, W - 190); });
-        para(g, n ? 'Next: decide, one by one, what rolls into tomorrow.' : 'Everything scheduled is done.', 28, 146, 15, W - 56, C.sageDeep);
+        para(g, n ? 'Next: decide, one by one, what rolls into tomorrow.' : 'Everything scheduled is done.', 28, TOSS ? 174 : 146, 15, W - 56, C.sageDeep);
       } else if (w.step <= n) {
         const t = s.tasks[w.list[w.step - 1]];
         text(g, t.title, 28, 78, 26, C.ink, 700, W - 56);
@@ -993,6 +1002,7 @@ export class MorningDeskSystem extends createSystem({
     if (s.timeline.includes(id)) return 'timeline';
     if (s.tomorrow.includes(id)) return 'tomorrow';
     if (s.skipped.includes(id)) return 'skipped';
+    if (s.dropped?.includes(id)) return 'dropped';
     return 'stack';
   }
   private headCam() { return this.inXR() ? this.world.renderer.xr.getCamera() : this.world.camera; }
@@ -1017,6 +1027,7 @@ export class MorningDeskSystem extends createSystem({
       out.set(-TRACK_W / 2 + 0.1 + i * 0.17, -0.37, 0.006); this.wall.localToWorld(out); this.wall.getWorldQuaternion(outQ);
       return { w: 0.16 * this.wallScale, h: 0.045 * this.wallScale, visible: true };
     }
+    if (place === 'dropped' && this.toss) { this.toss.rimWorld(out); out.y -= 0.2; this.desk.getWorldQuaternion(outQ); return { w: CARD_W, h: CARD_H, visible: false }; }
     if (place === 'skipped') {
       out.set(0.7, -0.2, 0); this.desk.localToWorld(out); this.desk.getWorldQuaternion(outQ);
       return { w: CARD_W, h: CARD_H, visible: false };
@@ -1628,6 +1639,9 @@ export class MorningDeskSystem extends createSystem({
     const d = this.drag; if (!d) return; this.drag = null;
     const it = this.items.get(d.id); if (!it) return;
     const p = it.label.mesh.position.clone();
+    if (this.toss?.held) { const h = this.toss.held; this.toss.held = null;
+      if (h.id === d.id && h.c > 0.5) { this.marker.visible = false; this.throwBall(d.id, p, d.hist); return; }
+      this.toss.ball.visible = false; this.toss.ball.scale.setScalar(0.001); it.label.mesh.scale.setScalar(1); }
     const b = d.hist[d.hist.length - 1];
     const right = new Vector3(1, 0, 0).applyQuaternion(this.desk.getWorldQuaternion(new Quaternion()));
     // flick = fast sideways motion at the end of the drag: peak sample speed, or >=8 cm sideways within the last 350 ms
@@ -1686,6 +1700,77 @@ export class MorningDeskSystem extends createSystem({
   }
 
   /** micro-animation: a picked-up card scales up ~12 % while held. */
+  // ---------------------------------------------------------------- step 5: crumple & toss (&toss=1)
+  basketsToday(): number { const b = this.s.baskets; return b && b.d === today() ? b.n : 0; }
+  /** A closed hand (fingertips near the wrist) on either tracked hand. Runtime feature check: no hand joints → false. */
+  private fist(): boolean {
+    const xr = this.world.renderer.xr; const frame = xr.getFrame(); const ref = xr.getReferenceSpace(); const ses = xr.getSession();
+    if (!frame || !ref || !ses || typeof frame.getJointPose !== 'function') return false;
+    for (const src of ses.inputSources) { const h = src.hand; if (!h) continue;
+      const wr = h.get('wrist'); if (!wr) continue; const wp = frame.getJointPose(wr, ref); if (!wp) continue; let near = 0;
+      for (const n of ['middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'] as XRHandJoint[]) { const j = h.get(n); const jp = j && frame.getJointPose(j, ref);
+        if (jp) { const a = jp.transform.position, b = wp.transform.position; if (Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 0.075) near++; } }
+      if (near === 3) return true; }
+    return false;
+  }
+  /** While a card is held: close the hand, or carry it toward the bin / below the desk edge, and it crumples into a paper ball. */
+  private crumpleStep(it: Item, delta: number): void {
+    const t = this.toss; if (!t || !this.drag || !t.bin.visible) return;
+    const p = it.label.mesh.position; const rim = t.rimWorld(this.tmp);
+    const heldS = (performance.now() - this.drag.t0) / 1000;
+    const want = heldS > 0.3 && (p.distanceTo(rim) < 0.5 || p.y < this.desk.getWorldPosition(new Vector3()).y - 0.06 || this.fist());
+    if (!t.held || t.held.id !== it.id) { if (!want) return; t.held = { id: it.id, c: 0 }; sfx.pick(); document.body.dataset.crumple = it.id; }
+    t.held.c = Math.min(1, t.held.c + delta / CRUMPLE_S); const e = t.held.c * t.held.c * (3 - 2 * t.held.c);
+    it.label.mesh.scale.set(Math.max(0.001, 1.12 * (1 - e)), Math.max(0.001, 1.12 * (1 - e) * (1 - 0.5 * e)), 1); // the card folds in on itself
+    it.label.mesh.rotation.z += delta * 6 * e;
+    t.ball.visible = true; t.ball.position.copy(p); t.ball.scale.setScalar(Math.max(0.001, e)); t.ball.rotation.y += delta * 5;
+    if (t.held.c >= 1) document.body.dataset.crumple = `ball:${it.id}`;
+  }
+  /** Release of a crumpled card: velocity from the last ~250 ms of hand samples (wall-clock), then a ballistic flight. */
+  private throwBall(id: string, p: Vector3, hist: { t: number; p: Vector3 }[]): void {
+    const t = this.toss!; const b = hist[hist.length - 1]; const a = hist.find((h) => b.t - h.t <= 250) ?? hist[0];
+    const dt = Math.max(0.016, (b.t - a.t) / 1000); const v = b.p.clone().sub(a.p).divideScalar(dt); if (v.length() > 6) v.setLength(6);
+    const it = this.items.get(id); if (it) it.label.mesh.visible = false;
+    this.landBall(id, p, v);
+  }
+  private landBall(id: string, p: Vector3, v: Vector3, force = false): void {
+    const t = this.toss!; document.body.dataset.toss = 'flying';
+    t.launch(id, p, v, (inBin) => {
+      const it = this.items.get(id);
+      if (it) { it.label.mesh.scale.setScalar(1); it.label.mesh.rotation.z = 0; it.label.mesh.position.copy(t.ball.position); }
+      if (!inBin) { t.say('Missed · back on your desk', 1.8); document.body.dataset.toss = 'miss'; sfx.no(); this.commit(); return; }
+      const s = this.s, strip = (arr: string[]) => arr.filter((x) => x !== id);
+      s.stack = strip(s.stack); s.timeline = strip(s.timeline); s.tomorrow = strip(s.tomorrow); s.skipped = strip(s.skipped);
+      if (s.zoneOf) delete s.zoneOf[id];
+      s.dropped = [...strip(s.dropped ?? []), id];
+      const n = this.basketsToday() + 1; s.baskets = { d: today(), n };
+      sfx.done(); t.say(`🏀 Basket! ${n} today`); document.body.dataset.toss = `in:${id}`; document.body.dataset.baskets = String(n);
+      this.commit();
+    }, force);
+  }
+  /** ⏭-style fallback: the Focus panel's 🗑 Toss button crumples the open card and drops it into the bin (same state change). */
+  tossFromFocus(): void {
+    const id = this.focus?.id; if (!id || !this.toss) return; this.endFocus(false); this.tossCard(id);
+  }
+  /** Crumple + an assisted arc into the bin for one card (button fallback; same landing path as a thrown ball). */
+  tossCard(id: string): void {
+    const t = this.toss; const it = this.items.get(id); if (!t || !it || t.fly) return;
+    const p = it.label.mesh.position.clone(); const rim = t.rimWorld(new Vector3());
+    p.y = Math.max(p.y, rim.y + 0.15); // start above the rim so the arc drops into the bin
+    const v = rim.clone().sub(p); v.y = 0; v.multiplyScalar(1.6); // gentle lob toward the rim
+    it.label.mesh.visible = false; this.landBall(id, p, v, true);
+  }
+  private tossFrame(delta: number): void {
+    const t = this.toss; if (!t) return;
+    const on = this.inXR() && this.mrFlow() && this.mr.phase === 'done' && !this.focus && !this.wake?.moodShown();
+    t.bin.visible = on || !!t.fly;
+    if (on && !t.fly) { // on the floor beside the seat, right of the desk, within ~2 ft of the user
+      const dp = this.desk.getWorldPosition(new Vector3()); const dq = this.desk.getWorldQuaternion(new Quaternion());
+      const w = dp.clone().add(new Vector3(0.42, 0, 0.32).applyQuaternion(dq)); w.y = Math.max(0, dp.y - 0.78);
+      t.bin.position.copy(w); t.bin.quaternion.copy(dq); }
+    t.update(delta);
+    if (t.tag.mesh.visible) { const h = this.headCam().getWorldPosition(new Vector3()); t.tag.mesh.lookAt(h); }
+  }
   private liftScale(it: Item, k: number): void { const s = it.label.mesh.scale.x; it.label.mesh.scale.setScalar(s + (1.12 - s) * k); }
   // ---------------------------------------------------------------- frame
   update(delta: number): void {
@@ -1717,13 +1802,14 @@ export class MorningDeskSystem extends createSystem({
     let hovTimeline = '';
     for (const it of this.items.values()) {
       const grabbed = it.entity.hasComponent(Grabbed);
+      if (this.toss?.fly?.id === it.id) { it.label.mesh.visible = false; continue; } // the paper ball is in the air
       // hand grab lifecycle
       if (grabbed && !this.drag) { const p = it.label.mesh.position.clone(); this.drag = { id: it.id, t0: performance.now(), p0: p, hist: [{ t: performance.now(), p }] }; sfx.pick(); this.tutEvent('pick'); }
       if (this.drag?.id === it.id && !this.mouseDrag) {
         if (grabbed) {
           const p = it.label.mesh.position.clone();
           this.drag.hist.push({ t: performance.now(), p }); if (this.drag.hist.length > 120) this.drag.hist.shift();
-          this.markerAt(this.wallSlot(p)); this.liftScale(it, k); continue;
+          this.markerAt(this.toss?.held?.c ? null : this.wallSlot(p)); this.liftScale(it, k); this.crumpleStep(it, delta); continue;
         }
         this.endDrag();
       }
@@ -1777,6 +1863,7 @@ export class MorningDeskSystem extends createSystem({
         if (this.agentOn() && this.morningRun && !this.pending && !this.wind && !this.focus && !this.wake.busy() && !this.wake.moodShown() && this.s.windAutoDay !== today() && this.evening()) {
           this.s.windAutoDay = today(); save(this.s); this.openWindDown(); document.body.dataset.windAuto = '1'; } } }
     if (this.zoneBtn) this.zoneBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.wake?.moodShown() && !this.focus && !this.wind;
+    this.tossFrame(delta);
     this.claimStep(delta); this.gazeStep(delta); this.zonePulseStep(); if (this.zoneFly && performance.now() - this.zoneFly.t0 > 1300) this.zoneFly = null;
     if (this.replaceBtn) this.replaceBtn.label.mesh.visible = this.mrFlow() && this.mr.phase === 'done' && !this.mr.vr && !this.wake?.moodShown();
     // agent acts on its own after a short beat

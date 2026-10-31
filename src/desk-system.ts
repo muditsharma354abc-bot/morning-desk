@@ -608,7 +608,7 @@ export class MorningDeskSystem extends createSystem({
     if (this.agentPanel.mesh.parent !== this.wall) return; // MR obstacle logic moved it onto the desk
     const y = flat ? -0.25 : 0.31;
     this.agentPanel.mesh.position.set(-0.15, y, 0.01);
-    this.yesBtn.label.mesh.position.set(flat ? 0.25 : 0.27, y + 0.035, 0.01); this.noBtn.label.mesh.position.set(flat ? 0.25 : 0.27, y - 0.035, 0.01);
+    this.yesBtn.label.mesh.position.set(flat ? 0.25 : 0.45, y + 0.035, 0.01); this.noBtn.label.mesh.position.set(flat ? 0.25 : 0.45, y - 0.035, 0.01);
     this.tutorial.mesh.position.set(0, flat ? 0.29 : -0.25, 0.01);
   }
   private session(): XRSession | null { return this.world.renderer.xr.getSession(); }

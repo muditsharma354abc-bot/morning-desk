@@ -131,7 +131,8 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     }
   }
   // Reel (&toss=1): step 5 crumple & toss: pinch-grab a nice-to-have card, carry it toward the floor bin (it crumples), flick it in
-  if (new URLSearchParams(location.search).get('toss') === '1' && sys.toss) {
+  // runs after 3/6 Re-place, so the Pending board shrinking (one card fewer) cannot move the chip row under the Re-place poke
+  const tossBeat = async () => { if (!(new URLSearchParams(location.search).get('toss') === '1' && sys.toss)) return;
     const ui = Object.getOwnPropertySymbols(dev).map((k) => dev[k]?.devui?.inputLayer).find((x: any) => x?.playerRig);
     const aimAt = async (ms: number, w: Vector3) => { if (!ui) return; const d = w.clone().sub(head()); const ty = Math.atan2(-d.x, -d.z), tx = Math.atan2(d.y, Math.hypot(d.x, d.z));
       const fy = ui.playerRig.rotation.y, fx = ui.cameraRig.rotation.x; await tween(ms, (k) => { ui.playerRig.rotation.y = fy + (ty - fy) * k; ui.cameraRig.rotation.x = fx + (tx - fx) * k; ui.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui.cameraRig.getWorldQuaternion(new Quaternion())); }); };
@@ -159,7 +160,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       await sleep(1400); cur = H(-0.05, -0.36, -0.22); pin(R, cur);
       if (ui) { const fy = ui.playerRig.rotation.y, fx = ui.cameraRig.rotation.x; await tween(800, (k) => { ui.playerRig.rotation.y = fy + (y0 - fy) * k; ui.cameraRig.rotation.x = fx + (x0 - fx) * k; ui.cameraRig.updateMatrixWorld(true); dev.quaternion.copy(ui.cameraRig.getWorldQuaternion(new Quaternion())); }); }
     }
-  }
+  };
   try {
     say('1/6  passthrough: desk on your table, plan on your wall');
     await move(H(-0.05, -0.36, -0.22), 900); await sleep(4000);
@@ -178,6 +179,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     await sleep(500); cur = H(-0.05, -0.36, -0.22); pin(R, cur);
     for (let i = 0; i < 3 && sys.mr.desk.startsWith('restored'); i++) { await press('Re-place'); await sleep(400); } await until(() => sys.mr.phase === 'done' && sys.mr.desk !== '', 6000); await sleep(3000);
 
+    await tossBeat(); cur = H(-0.05, -0.36, -0.22); pin(R, cur);
     say('4/6  pinch a block to focus · 👍 done');
     const id = sys.s.timeline.find((x: string) => !sys.s.tasks[x].done);
     const c = card(id); await move([c[0], c[1] + 0.05, c[2] + 0.12], 1300); await move(card(id), 500); await sleep(250);

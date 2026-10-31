@@ -41,12 +41,14 @@ if (!ONLY || ONLY === 'zones') { const p = await page(); await p.goto(BASE + '?d
 
 // 1c. Step 5 Crumple & toss (&toss=1): pinch-grab → crumple → throw by hand lands in the bin, task 'dropped' in state, basket counted, run still ends
 if (!ONLY || ONLY === 'toss') { const p = await page(); await p.goto(BASE + '?demo=1&autoplay=1&mr=1&hands=1&clean=1&wake=1&mood=okay&toss=1');
-  const T0 = Date.now(); let say = '', ts = null;
+  const T0 = Date.now(); let say = '', ts = null, wb = -1;
   while (Date.now() - T0 < (THROTTLE ? 1500000 : 480000)) { const prev = say; say = await sayOf(p).catch(() => ''); if (say !== prev && process.env.VERBOSE) console.log(`  ${((Date.now() - T0) / 1000).toFixed(0)}s ${say}`);
-    if (!ts && /^1\/6/.test(say)) ts = await p.evaluate(() => { const t = window.__mdTest; if (!t) return null; return { beat: document.body.dataset.tossBeat ?? '', log: document.body.dataset.v2log ?? '', dropped: t.s.dropped ?? [], baskets: t.basketsToday(), inLists: (t.s.dropped ?? []).some((id) => [...t.s.stack, ...t.s.timeline, ...t.s.tomorrow, ...t.s.skipped].includes(id)) }; });
+    if (wb < 0 && /^5\/6/.test(say)) wb = await p.evaluate(() => window.__mdTest?.basketsToday() ?? -1);
+    if (!ts && /^4\/6/.test(say)) ts = await p.evaluate(() => { const t = window.__mdTest; if (!t) return null; return { beat: document.body.dataset.tossBeat ?? '', log: document.body.dataset.v2log ?? '', dropped: t.s.dropped ?? [], baskets: t.basketsToday(), inLists: (t.s.dropped ?? []).some((id) => [...t.s.stack, ...t.s.timeline, ...t.s.tomorrow, ...t.s.skipped].includes(id)) }; });
     if (/complete|stopped/.test(say)) break; await p.waitForTimeout(500); }
   ok(!!ts && ts.beat === 'hand', `toss: card crumpled and thrown into the bin by hand (${JSON.stringify(ts)})`);
   ok(!!ts && ts.dropped.length === 1 && !ts.inLists && ts.baskets === 1, 'toss: task is dropped in state (out of every list), 1 basket today');
+  ok(wb === 1, `toss: basket still counted when Wind down opens (${wb})`);
   ok(/v2 demo complete/.test(say), `toss autoplay reached the end (${say})`); ok(!p.errs.length, `toss: no page errors ${p.errs.join(' | ')}`); await p.close(); }
 // 1d. 🗑 Toss button fallback (hands-only poke on the Focus panel) + no bin without the flag
 if (!ONLY || ONLY === 'tossbtn') { for (const q of ['?demo=1&mr=1&hands=1&wake=0&toss=1', '?demo=1&mr=1&hands=1&wake=0']) { const p = await page(); await p.goto(BASE + q);

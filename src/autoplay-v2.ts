@@ -100,6 +100,9 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
         if (sys.pending) { say('👍 Keep'); try { await press('Keep'); } catch (e) { say(`autoplay stopped: ${(e as Error).message}`); return; } await sleep(1500); } }
     } }
   const card = (id: string) => posOf(sys.items.get(id).label.mesh);
+  { // ⋯ task options: poke a Pending card's ⋯ pill, then +15 min in the one-column menu
+    const oid = sys.s.stack.find((x: string) => sys.dotBtns.get(x)?.label.mesh.visible);
+    if (oid) { say('⋯ options: Skip · +15 min · Tomorrow'); try { await press(`⋯ options ${oid}`); await until(() => !!sys.optId, 3000); await sleep(1200); await press('+15 min'); await until(() => !sys.optId, 3000); log(`opts:${document.body.dataset.optDone ?? '-'}`); } catch (e) { say(`autoplay stopped: ${(e as Error).message}`); return; } await sleep(600); } }
   // Reel (&zones=1): Room Zones beat after Keep: Focus + Quick zones on the table either side, agent cards fly in, then look to target
   if (new URLSearchParams(location.search).get('zones') === '1') {
     const ui0 = Object.getOwnPropertySymbols(dev).map((k) => dev[k]?.devui?.inputLayer).find((x: any) => x?.playerRig);
@@ -169,8 +172,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
       if (w.step <= w.list.length) {
         if (said < 1) { said = 1; say('5/6  roll each unfinished task: 👍 keep for tomorrow · 👎 drop'); }
         const keep = w.step < w.list.length; await sleep(900); log(keep ? 'up' : 'down');
-        const at = w.step; await thumbs(keep); // deterministic demo: keep all but the last unfinished block → 1 dropped
-        if (sys.wind && sys.wind.step === at) { log('poke'); await press(keep ? 'Tomorrow' : 'Drop'); } // gesture missed (slow/fast frame rate): same choice by poke
+        await press(keep ? 'Next' : 'Drop'); // the Next pill (keeps it for tomorrow) · deterministic demo: all but the last kept → 1 dropped // gesture missed (slow/fast frame rate): same choice by poke
         await until(() => sys.thumb.dir === 0, 1500); await sleep(300); // let the thumb gesture settle so a late 👎 can't hit the next step (👎 on Close day = Back)
         continue;
       }

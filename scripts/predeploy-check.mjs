@@ -25,6 +25,7 @@ if (!ONLY || ONLY === 'autoplay') { const p = await page(); await p.goto(BASE + 
   ok(seen.has('Room') || seen.has('Mood'), 'autoplay: wake-up + mood check ran');
   ok(/Demo complete/.test(say), `autoplay reached the end (${say})`);
   ok(await p.evaluate(() => document.body.dataset.wind === 'closed'), 'autoplay: Wind down closed (day closed)');
+  { const lg = await p.evaluate(() => document.body.dataset.v2log ?? ''); ok(/opts:more:/.test(lg), `autoplay: ⋯ options menu opened and +15 min applied (${(lg.match(/opts:[^;]*/) ?? ['none'])[0]})`); ok(/Next\+/.test(lg), 'autoplay: Wind down advanced by the Next pill'); }
   ok(!p.errs.length, `autoplay: no page errors ${p.errs.join(' | ')}`); await p.close(); }
 
 // 1b. Room Zones beat (&zones=1): Focus + Quick patches claimed, a card on Focus (Okay mood), look-to-target glow fires, run still ends
@@ -56,7 +57,7 @@ for (const how of ONLY === 'autoplay' ? [] : ONLY ? [ONLY] : ['poke', 'pinch']) 
     const st = await p.evaluate(() => document.body.dataset.wind ?? ''); if (st === 'closed') break;
     if (process.env.VERBOSE) console.log("  wind", st, await p.evaluate(() => JSON.stringify({ step: window.__mdTest.wind?.step, n: window.__mdTest.wind?.list.length, xr: window.__mdTest.inXR() })));
     const r = await p.evaluate(async (how) => { const t = window.__mdTest, R = window.IWER_DEVICE.hands.right; const w = t.wind; const n = w.list.length;
-      const want = w.step === 0 ? 'Next' : w.step <= n ? (t.s.tasks[w.list[w.step - 1]].priority === 1 ? 'Tomorrow' : 'Drop') : 'Close day';
+      const want = w.step === 0 ? 'Next' : w.step <= n ? (w.step < n ? 'Next' : 'Drop') : 'Close day';
       const btn = [...t.buttons.values()].find((x) => x.label.mesh.visible && x.label.mesh.userData.btn?.includes(want)); if (!btn) return 'nobtn:' + want;
       const m = btn.label.mesh; const V = m.position.constructor, Q = m.quaternion.constructor; m.updateMatrixWorld();
       const pos = m.getWorldPosition(new V()); const nrm = new V(0, 0, 1).applyQuaternion(m.getWorldQuaternion(new Q())); const sl = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -73,5 +74,16 @@ for (const how of ONLY === 'autoplay' ? [] : ONLY ? [ONLY] : ['poke', 'pinch']) 
     await p.waitForTimeout(400);
   }
   ok(await p.evaluate(() => document.body.dataset.wind === 'closed'), `wind-down closes by hand ${how}`); ok(!p.errs.length, `no page errors (${how}) ${p.errs.join(' | ')}`); await p.close(); }
+// 3. Wind down by thumb microgesture (IWER 2.7 emulates Quest's hand-gamepad swipe buttons): swipe right = Next on every roll-over step
+if (!ONLY || ONLY === 'swipe') { const p = await page(); await p.goto(BASE + '?demo=1&mr=1&hands=1&wake=0');
+  await p.waitForFunction(() => !!window.__mdTest, null, { timeout: 90000 }).catch(() => {});
+  for (const t0 = Date.now(); Date.now() - t0 < 90000;) { if (await p.evaluate(() => !!window.__mdTest?.inXR?.()).catch(() => false)) break; await p.click('#btn-enter', { timeout: 5000 }).catch(() => {}); await p.waitForTimeout(4000); }
+  await p.waitForTimeout(3000);
+  const r = await p.evaluate(async () => { const t = window.__mdTest, dev = window.IWER_DEVICE; dev.primaryInputMode = 'hand'; t.openWindDown(); const sl = (ms) => new Promise((r) => setTimeout(r, ms));
+    await sl(800); const n = t.wind.list.length; const steps = [];
+    for (let i = 0; i <= n && t.wind && t.wind.step <= n; i++) { const before = t.wind.step; await dev.remote.dispatch('microgesture', { device: 'hand-right', gesture: 'swipe-right' });
+      const t0 = performance.now(); while (t.wind && t.wind.step === before && performance.now() - t0 < 6000) await sl(50); steps.push(t.wind?.step ?? -1); }
+    return { n, steps, final: t.wind?.step, swipes: document.body.dataset.swipe }; });
+  ok(r.final === r.n + 1, `wind-down advanced by thumb swipe (emulator): ${JSON.stringify(r)}`); ok(!p.errs.length, `no page errors (swipe) ${p.errs.join(' | ')}`); await p.close(); }
 await b.close();
 console.log(fails.length ? `\n${fails.length} check(s) failed` : '\nall checks passed'); process.exit(fails.length ? 1 : 0);

@@ -1747,7 +1747,7 @@ export class MorningDeskSystem extends createSystem({
       if (s.zoneOf) delete s.zoneOf[id];
       s.dropped = [...strip(s.dropped ?? []), id];
       const n = this.basketsToday() + 1; s.baskets = { d: today(), n };
-      sfx.done(); t.say(`🏀 Basket! ${n} today`); document.body.dataset.toss = `in:${id}`; document.body.dataset.baskets = String(n);
+      sfx.done(); t.say(`🏀 Basket! ${n} today`); this.agentMsg = `🏀 Basket! "${s.tasks[id]?.title ?? ''}" dropped for today · ${n} basket${n > 1 ? 's' : ''} today`; document.body.dataset.toss = `in:${id}`; document.body.dataset.baskets = String(n);
       this.commit();
     }, force);
   }

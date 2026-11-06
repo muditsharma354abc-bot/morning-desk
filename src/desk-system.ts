@@ -46,7 +46,7 @@ const DEBUG = new URLSearchParams(location.search).has('debug');
 /** ?test=1: headset test checklist (poke to tick) + live fps (avg / min over the last 10 s). */
 const TEST = new URLSearchParams(location.search).has('test');
 const TEST_KEY = 'morning-desk.test.v1';
-const TEST_ITEMS = ['Desk on real table', 'Timeline on real wall', 'Re-place works', 'Anchors after reload', 'Pinch-drag → plan', '📅 Plan it button', 'Flick → skip', '⏭ Skip button', 'Tap → Focus · 👍 done', 'Done/+15/Exit btns', '👍/👎 Keep · Undo', 'Wind-down 👍/👎 + btns', 'High contrast', 'Last 7 days', 'Tutorial completes', '60 fps held'];
+const TEST_ITEMS = ['Layout on real surface', 'Timeline on real wall', 'Re-place works', 'Anchors after reload', 'Pinch-drag → plan', '📅 Plan it button', 'Flick → skip', '⏭ Skip button', 'Tap → Focus · 👍 done', 'Done/+15/Exit btns', '👍/👎 Keep · Undo', 'Wind-down 👍/👎 + btns', 'High contrast', 'Last 7 days', 'Tutorial completes', '60 fps held'];
 const MR_KEY = IS_DEMO ? 'morning-desk.demo.mr.v2' : 'morning-desk.mr.v2'; // demo runs keep their own placement; real anchors untouched               // { uuid, desk pose, wall pose } relative to IWSDK's persistent anchor
 const ANCHOR_UUID_KEY = 'iwsdk_scene_anchor_uuid'; // IWSDK SceneUnderstandingSystem's persistent anchor UUID
 
@@ -123,7 +123,7 @@ export class MorningDeskSystem extends createSystem({
   setCurtain(k: number, rate = 2.2): void { this.curtain.rate = rate; this.curtain.target = k; }
   /** Opening: light line draws down the wall; the curtain opens with the sunrise. */
   themeOpening(): void { this.line.start(); this.curtain.k = 0; this.setCurtain(1, 0.55); }
-  /** Anchor the curtain to a scene-understanding 'window' plane if one exists, else a virtual curtain behind the desk. */
+  /** Anchor the curtain to a scene-understanding 'window' plane if one exists, else a virtual curtain behind the boards. */
   private placeCurtain(): void {
     const c = this.curtain.root; let found = false;
     for (const e of this.queries.planes.entities) {
@@ -135,7 +135,7 @@ export class MorningDeskSystem extends createSystem({
       c.position.copy(p).addScaledVector(n, 0.012); c.rotation.set(0, Math.atan2(n.x, n.z), 0); found = true; break; // behind the wall boards (+0.03): the curtain never covers the plan
     }
     if (!found) { const d = this.desk; c.position.copy(d.localToWorld(new Vector3(0.95, 0.75, -0.75))); c.rotation.set(0, d.rotation.y - 0.55, 0); }
-    this.curtain.anchored = found ? 'window' : 'fallback'; this.windowFinding = found ? 'window plane label found; curtain anchored to it' : 'no window label; virtual curtain behind the desk';
+    this.curtain.anchored = found ? 'window' : 'fallback'; this.windowFinding = found ? 'window plane label found; curtain anchored to it' : 'no window label; virtual curtain behind the boards';
     document.body.dataset.curtainAnchor = this.curtain.anchored;
     this.winPane.position.set(0, 0, -0.03); this.revive.position.copy(this.desk.position); this.revive.rotation.y = this.desk.rotation.y;
   }
@@ -855,14 +855,14 @@ export class MorningDeskSystem extends createSystem({
   mrStatus(): string {
     const m = this.mr;
     if (m.vr) return '🖥 VR room (no passthrough on this device)';
-    if (m.phase === 'restore') return '📍 finding your saved desk…';
-    if (m.phase === 'scan' || m.phase === 'hit') return '📍 looking for your desk…';
-    if (m.phase === 'tap') return '📍 pinch to set your desk';
-    return m.desk.startsWith('restored') ? '📍 desk + wall restored in the same spot in your real room' : `📍 desk: ${m.desk} · wall: ${m.wall}`;
+    if (m.phase === 'restore') return '📍 finding your saved place…';
+    if (m.phase === 'scan' || m.phase === 'hit') return '📍 looking for a place in your room…';
+    if (m.phase === 'tap') return '📍 pinch to set your place';
+    return m.desk.startsWith('restored') ? '📍 room layout restored in the same spot' : `📍 place: ${m.desk} · wall: ${m.wall}`;
   }
   private showPlaceHint(): void {
     this.placeHint.mesh.visible = true;
-    this.placeHint.draw((g, W, H) => { panel(g, W, H, C.glassHi, C.sky, 1); text(g, '📍 Look where you want your desk in your real room, then pinch', W / 2, H / 2, 18, C.ink, 600, W - 30, 'center'); });
+    this.placeHint.draw((g, W, H) => { panel(g, W, H, C.glassHi, C.sky, 1); text(g, '📍 Look where you want your morning layout in your real room, then pinch', W / 2, H / 2, 18, C.ink, 600, W - 30, 'center'); });
   }
 
   // ---------------------------------------------------------------- v2: Wind-down (evening ritual: recap → roll each unfinished task → close the day)
@@ -1500,7 +1500,7 @@ export class MorningDeskSystem extends createSystem({
   }
   // Tutorial advances only when the user actually performs each gesture.
   private static TUT = [
-    { on: 'pick', msg: '👋 Pinch (or drag) a card on your desk to pick it up.' },
+    { on: 'pick', msg: '👋 Pinch (or drag) a card in front of you to pick it up.' },
     { on: 'drop', msg: '📌 Move it toward this timeline and open your fingers to drop it.' },
     { on: 'skip', msg: '💨 Now flick a card quickly sideways to skip it for today.' },
     { on: 'detail', msg: '🎯 Quick pinch (tap) a card to focus on it. 👍 when done.' },

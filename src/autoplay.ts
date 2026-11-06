@@ -109,7 +109,7 @@ export async function runAutoplay(sys: Sys, world: World): Promise<void> {
   };
   try {
     // ---- the pass (~60 s); every caption is set before its action
-    say('1/7  your day in space: desk, timeline, a 14:00 meeting');
+    say('1/7  your day in space: timeline, Focus, a 14:00 meeting');
     await move([0.2, 1.3, -0.3], 1000);
     const deep = card('deep'); await move([deep[0] * 0.4, deep[1] - 0.05, -0.4], 1500); await sleep(2500);
 

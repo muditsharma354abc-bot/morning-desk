@@ -107,7 +107,7 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
   };
   const beatRenew = async () => {
     await look(sys.curtain.root); say('Renew: the curtain closes slowly'); await sleep(HOLD + 500); log(`autoclose:${document.body.dataset.curtain}`);
-    await move(H(0.4, -0.9, 0.1), 600); pin(L, H(-0.4, -0.9, 0.1)); await look(sys.lamp); say('Renew: a paper lantern on the desk, the room cool and dim'); await sleep(HOLD); await lookHome();
+    await move(H(0.4, -0.9, 0.1), 600); pin(L, H(-0.4, -0.9, 0.1)); await look(sys.lamp); say('Renew: a paper lantern glows, the room cool and dim'); await sleep(HOLD); await lookHome();
   };
   if (new URLSearchParams(location.search).get('tour') === 'theme') {
     const tt0 = performance.now(); document.body.dataset.tour = 'run';
@@ -182,10 +182,10 @@ export async function runAutoplayV2(sys: any, world: World): Promise<void> {
     }
   }
   try {
-    say('1/6  passthrough: desk on your table, plan on your wall'); await beatOpening(); await lookHome();
+    say('1/6  passthrough: room wake — plan on your wall'); await beatOpening(); await lookHome();
     await move(H(-0.05, -0.36, -0.22), 900); await sleep(1500);
 
-    say('2/6  leave and re-enter XR: desk + wall come back in the same spot (persistent anchor)');
+    say('2/6  leave and re-enter XR: room layout comes back in the same spot (persistent anchor)');
     { const before = posOf(sys.desk).map((v) => v.toFixed(3)).join(',');
       sys.mr.phase = 'idle'; sys.mr.desk = ''; await world.renderer.xr.getSession()?.end(); await until(() => world.visibilityState.value === VisibilityState.NonImmersive, 4000); await sleep(1200);
       await sys.enterXR(); await until(() => world.visibilityState.value !== VisibilityState.NonImmersive, 5000);
